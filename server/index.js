@@ -15,9 +15,24 @@ db.exec(`
   CREATE TABLE IF NOT EXISTS sessions (
     id TEXT PRIMARY KEY,
     created_at TEXT NOT NULL,
-    last_activity TEXT
+    last_activity TEXT,
+    model TEXT
   )
 `);
+
+// Add model column if it doesn't exist (migration for existing databases)
+try {
+  db.exec(`ALTER TABLE sessions ADD COLUMN model TEXT`);
+} catch (e) {
+  // Column already exists, ignore
+}
+
+// Add user column if it doesn't exist (migration for existing databases)
+try {
+  db.exec(`ALTER TABLE sessions ADD COLUMN user TEXT`);
+} catch (e) {
+  // Column already exists, ignore
+}
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS entries (
@@ -38,12 +53,12 @@ db.pragma('foreign_keys = ON');
 
 // Prepared statements
 const insertSession = db.prepare(`
-  INSERT OR IGNORE INTO sessions (id, created_at, last_activity)
-  VALUES (?, ?, ?)
+  INSERT OR IGNORE INTO sessions (id, created_at, last_activity, model, user)
+  VALUES (?, ?, ?, ?, ?)
 `);
 
 const updateSessionActivity = db.prepare(`
-  UPDATE sessions SET last_activity = ? WHERE id = ?
+  UPDATE sessions SET last_activity = ?, model = COALESCE(?, model), user = COALESCE(?, user) WHERE id = ?
 `);
 
 const insertEntry = db.prepare(`
@@ -105,6 +120,8 @@ app.post('/api/tokens', (req, res) => {
     output_tokens,
     cache_read_tokens,
     cache_creation_tokens,
+    model,
+    user,
     timestamp
   } = req.body;
 
@@ -123,10 +140,10 @@ app.post('/api/tokens', (req, res) => {
   };
 
   // Insert session if it doesn't exist
-  insertSession.run(session_id, ts, ts);
+  insertSession.run(session_id, ts, ts, model || null, user || null);
 
-  // Update last activity
-  updateSessionActivity.run(ts, session_id);
+  // Update last activity, model, and user
+  updateSessionActivity.run(ts, model || null, user || null, session_id);
 
   // Insert entry
   insertEntry.run(
@@ -150,6 +167,8 @@ app.get('/api/sessions', (req, res) => {
       id: session.id,
       created_at: session.created_at,
       last_activity: session.last_activity,
+      model: session.model,
+      user: session.user,
       totals
     };
   });
@@ -174,6 +193,8 @@ app.get('/api/sessions/:sessionId', (req, res) => {
       id: session.id,
       created_at: session.created_at,
       last_activity: session.last_activity,
+      model: session.model,
+      user: session.user,
       entries,
       totals
     }
