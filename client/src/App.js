@@ -68,6 +68,8 @@ function App() {
   const [sortBy, setSortBy] = useState('recent');
   const [users, setUsers] = useState([]);
   const [selectedUser, setSelectedUser] = useState('all');
+  const [editingNotes, setEditingNotes] = useState(false);
+  const [notesInput, setNotesInput] = useState('');
 
   // Helper function to calculate date range based on timeframe
   const getDateRange = useCallback(() => {
@@ -182,9 +184,35 @@ function App() {
       if (!res.ok) throw new Error('Failed to fetch session');
       const data = await res.json();
       setSelectedSession(data.session);
+      setNotesInput(data.session.notes || '');
+      setEditingNotes(false);
     } catch (err) {
       setError(err.message);
     }
+  };
+
+  const saveNotes = async () => {
+    if (!selectedSession) return;
+
+    try {
+      const res = await fetch(`${API_BASE}/sessions/${selectedSession.id}/notes`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ notes: notesInput })
+      });
+
+      if (!res.ok) throw new Error('Failed to save notes');
+
+      setSelectedSession({ ...selectedSession, notes: notesInput });
+      setEditingNotes(false);
+    } catch (err) {
+      setError(err.message);
+    }
+  };
+
+  const cancelEditNotes = () => {
+    setNotesInput(selectedSession?.notes || '');
+    setEditingNotes(false);
   };
 
   const formatNumber = (num) => {
@@ -464,6 +492,35 @@ function App() {
           {selectedSession.user && <p className="session-user-detail">User: {selectedSession.user}</p>}
           {selectedSession.model && <p className="session-model-detail">Model: {selectedSession.model}</p>}
           <p>Created: {formatDate(selectedSession.created_at)}</p>
+
+          <div className="session-notes">
+            <div className="notes-header">
+              <h3>Notes</h3>
+              {!editingNotes ? (
+                <button onClick={() => setEditingNotes(true)} className="edit-notes-btn">
+                  {selectedSession.notes ? 'Edit' : 'Add Notes'}
+                </button>
+              ) : (
+                <div className="notes-actions">
+                  <button onClick={saveNotes} className="save-notes-btn">Save</button>
+                  <button onClick={cancelEditNotes} className="cancel-notes-btn">Cancel</button>
+                </div>
+              )}
+            </div>
+            {editingNotes ? (
+              <textarea
+                value={notesInput}
+                onChange={(e) => setNotesInput(e.target.value)}
+                placeholder="Add notes about what you were working on..."
+                className="notes-input"
+                rows={4}
+              />
+            ) : (
+              <p className="notes-display">
+                {selectedSession.notes || 'No notes added yet. Click "Add Notes" to describe what you were working on.'}
+              </p>
+            )}
+          </div>
 
           <h3>Token Usage Over Time</h3>
           <SessionChart entries={selectedSession.entries} />

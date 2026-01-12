@@ -34,6 +34,13 @@ try {
   // Column already exists, ignore
 }
 
+// Add notes column if it doesn't exist (migration for existing databases)
+try {
+  db.exec(`ALTER TABLE sessions ADD COLUMN notes TEXT`);
+} catch (e) {
+  // Column already exists, ignore
+}
+
 db.exec(`
   CREATE TABLE IF NOT EXISTS entries (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -107,6 +114,10 @@ const getOverallStats = db.prepare(`
     COALESCE(SUM(cache_creation_tokens), 0) as total_cache_creation_tokens,
     COALESCE(SUM(total_tokens), 0) as total_tokens
   FROM entries
+`);
+
+const updateSessionNotes = db.prepare(`
+  UPDATE sessions SET notes = ? WHERE id = ?
 `);
 
 app.use(cors());
@@ -261,6 +272,21 @@ app.get('/api/stats', (req, res) => {
   }
 
   res.json({ stats });
+});
+
+// PATCH /api/sessions/:sessionId/notes - Update session notes
+app.patch('/api/sessions/:sessionId/notes', (req, res) => {
+  const { sessionId } = req.params;
+  const { notes } = req.body;
+
+  const session = getSession.get(sessionId);
+  if (!session) {
+    return res.status(404).json({ error: 'Session not found' });
+  }
+
+  updateSessionNotes.run(notes || null, sessionId);
+
+  res.json({ success: true, notes: notes || null });
 });
 
 // DELETE /api/sessions/:sessionId - Delete a session
