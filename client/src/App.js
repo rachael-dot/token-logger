@@ -62,12 +62,91 @@ function App() {
   const [selectedSession, setSelectedSession] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [timeframe, setTimeframe] = useState('all');
+  const [customStartDate, setCustomStartDate] = useState('');
+  const [customEndDate, setCustomEndDate] = useState('');
+  const [sortBy, setSortBy] = useState('recent');
+  const [users, setUsers] = useState([]);
+  const [selectedUser, setSelectedUser] = useState('all');
+
+  // Helper function to calculate date range based on timeframe
+  const getDateRange = useCallback(() => {
+    const now = new Date();
+    let startDate, endDate;
+
+    switch (timeframe) {
+      case 'today':
+        startDate = new Date(now);
+        startDate.setHours(0, 0, 0, 0);
+        endDate = new Date(now);
+        endDate.setHours(23, 59, 59, 999);
+        break;
+      case 'week':
+        startDate = new Date(now);
+        startDate.setDate(now.getDate() - 7);
+        startDate.setHours(0, 0, 0, 0);
+        endDate = new Date(now);
+        endDate.setHours(23, 59, 59, 999);
+        break;
+      case 'month':
+        startDate = new Date(now);
+        startDate.setMonth(now.getMonth() - 1);
+        startDate.setHours(0, 0, 0, 0);
+        endDate = new Date(now);
+        endDate.setHours(23, 59, 59, 999);
+        break;
+      case 'custom':
+        if (customStartDate && customEndDate) {
+          startDate = new Date(customStartDate);
+          startDate.setHours(0, 0, 0, 0);
+          endDate = new Date(customEndDate);
+          endDate.setHours(23, 59, 59, 999);
+        }
+        break;
+      default:
+        return null;
+    }
+
+    return startDate && endDate ? {
+      startDate: startDate.toISOString(),
+      endDate: endDate.toISOString()
+    } : null;
+  }, [timeframe, customStartDate, customEndDate]);
+
+  const fetchUsers = useCallback(async () => {
+    try {
+      const res = await fetch(`${API_BASE}/users`);
+      if (res.ok) {
+        const data = await res.json();
+        setUsers(data.users);
+      }
+    } catch (err) {
+      console.error('Failed to fetch users:', err);
+    }
+  }, []);
 
   const fetchData = useCallback(async () => {
     try {
       setError(null);
+
+      const dateRange = getDateRange();
+      const params = new URLSearchParams();
+
+      if (dateRange) {
+        params.append('startDate', dateRange.startDate);
+        params.append('endDate', dateRange.endDate);
+      }
+
+      if (selectedUser !== 'all') {
+        params.append('user', selectedUser);
+      }
+
+      const statsUrl = params.toString()
+        ? `${API_BASE}/stats?${params.toString()}`
+        : `${API_BASE}/stats`;
+
       const [statsRes, sessionsRes] = await Promise.all([
-        fetch(`${API_BASE}/stats`),
+        fetch(statsUrl),
         fetch(`${API_BASE}/sessions`)
       ]);
 
@@ -85,7 +164,11 @@ function App() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [getDateRange, selectedUser]);
+
+  useEffect(() => {
+    fetchUsers();
+  }, [fetchUsers]);
 
   useEffect(() => {
     fetchData();
@@ -139,6 +222,60 @@ function App() {
     return id.length > 12 ? `${id.slice(0, 6)}...${id.slice(-6)}` : id;
   };
 
+  // Sort sessions based on selected sort option
+  const getSortedSessions = useCallback((sessions) => {
+    const sorted = [...sessions];
+
+    switch (sortBy) {
+      case 'recent':
+        return sorted.sort((a, b) =>
+          new Date(b.last_activity || b.created_at) - new Date(a.last_activity || a.created_at)
+        );
+      case 'cost-high':
+        return sorted.sort((a, b) => {
+          const costA = calculateCost(
+            a.totals.input_tokens,
+            a.totals.output_tokens,
+            a.totals.cache_read_tokens,
+            a.totals.cache_creation_tokens
+          );
+          const costB = calculateCost(
+            b.totals.input_tokens,
+            b.totals.output_tokens,
+            b.totals.cache_read_tokens,
+            b.totals.cache_creation_tokens
+          );
+          return costB - costA;
+        });
+      case 'cost-low':
+        return sorted.sort((a, b) => {
+          const costA = calculateCost(
+            a.totals.input_tokens,
+            a.totals.output_tokens,
+            a.totals.cache_read_tokens,
+            a.totals.cache_creation_tokens
+          );
+          const costB = calculateCost(
+            b.totals.input_tokens,
+            b.totals.output_tokens,
+            b.totals.cache_read_tokens,
+            b.totals.cache_creation_tokens
+          );
+          return costA - costB;
+        });
+      case 'tokens-high':
+        return sorted.sort((a, b) => b.totals.total_tokens - a.totals.total_tokens);
+      case 'tokens-low':
+        return sorted.sort((a, b) => a.totals.total_tokens - b.totals.total_tokens);
+      case 'requests-high':
+        return sorted.sort((a, b) => b.totals.request_count - a.totals.request_count);
+      case 'requests-low':
+        return sorted.sort((a, b) => a.totals.request_count - b.totals.request_count);
+      default:
+        return sorted;
+    }
+  }, [sortBy]);
+
   if (loading) {
     return <div className="container loading">Loading...</div>;
   }
@@ -162,6 +299,61 @@ function App() {
 
       {stats && (
         <section className="stats-section">
+          <div className="stats-header">
+            <h2>Usage Statistics</h2>
+            <div className="stats-filters">
+              <div className="timeframe-controls">
+                <label>
+                  Timeframe:
+                  <select
+                    value={timeframe}
+                    onChange={(e) => setTimeframe(e.target.value)}
+                    className="timeframe-select"
+                  >
+                    <option value="all">All Time</option>
+                    <option value="today">Today</option>
+                    <option value="week">Last 7 Days</option>
+                    <option value="month">Last 30 Days</option>
+                    <option value="custom">Custom Range</option>
+                  </select>
+                </label>
+                {timeframe === 'custom' && (
+                  <div className="date-range-picker">
+                    <input
+                      type="date"
+                      value={customStartDate}
+                      onChange={(e) => setCustomStartDate(e.target.value)}
+                      className="date-input"
+                    />
+                    <span>to</span>
+                    <input
+                      type="date"
+                      value={customEndDate}
+                      onChange={(e) => setCustomEndDate(e.target.value)}
+                      className="date-input"
+                    />
+                  </div>
+                )}
+              </div>
+              {users.length > 0 && (
+                <div className="user-filter">
+                  <label>
+                    User:
+                    <select
+                      value={selectedUser}
+                      onChange={(e) => setSelectedUser(e.target.value)}
+                      className="user-select"
+                    >
+                      <option value="all">All Users</option>
+                      {users.map(user => (
+                        <option key={user} value={user}>{user}</option>
+                      ))}
+                    </select>
+                  </label>
+                </div>
+              )}
+            </div>
+          </div>
           <div className="stats-row">
             <div className="stat-card">
               <h3>Sessions</h3>
@@ -203,12 +395,32 @@ function App() {
       )}
 
       <section className="sessions-section">
-        <h2>Sessions</h2>
+        <div className="sessions-header">
+          <h2>Sessions</h2>
+          <div className="sort-controls">
+            <label>
+              Sort by:
+              <select
+                value={sortBy}
+                onChange={(e) => setSortBy(e.target.value)}
+                className="sort-select"
+              >
+                <option value="recent">Most Recent</option>
+                <option value="cost-high">Highest Cost</option>
+                <option value="cost-low">Lowest Cost</option>
+                <option value="tokens-high">Most Tokens</option>
+                <option value="tokens-low">Least Tokens</option>
+                <option value="requests-high">Most Requests</option>
+                <option value="requests-low">Least Requests</option>
+              </select>
+            </label>
+          </div>
+        </div>
         {sessions.length === 0 ? (
           <p className="empty-state">No sessions recorded yet. Start using Claude Code with the token logger hook enabled.</p>
         ) : (
           <div className="sessions-list">
-            {sessions.map((session) => (
+            {getSortedSessions(sessions).map((session) => (
               <div
                 key={session.id}
                 className={`session-card ${selectedSession?.id === session.id ? 'selected' : ''}`}
