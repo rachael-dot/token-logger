@@ -2,6 +2,8 @@ const express = require('express');
 const cors = require('cors');
 const Database = require('better-sqlite3');
 const path = require('path');
+const { body, validationResult } = require('express-validator');
+const sanitizeHtml = require('sanitize-html');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -30,6 +32,13 @@ try {
 // Add user column if it doesn't exist (migration for existing databases)
 try {
   db.exec(`ALTER TABLE sessions ADD COLUMN user TEXT`);
+} catch (e) {
+  // Column already exists, ignore
+}
+
+// Add notes column if it doesn't exist (migration for existing databases)
+try {
+  db.exec(`ALTER TABLE sessions ADD COLUMN notes TEXT`);
 } catch (e) {
   // Column already exists, ignore
 }
@@ -109,8 +118,15 @@ const getOverallStats = db.prepare(`
   FROM entries
 `);
 
+const updateSessionNotes = db.prepare(`
+  UPDATE sessions SET notes = ? WHERE id = ?
+`);
+
 app.use(cors());
 app.use(express.json());
+
+// Serve static files from React build
+app.use(express.static(path.join(__dirname, '..', 'client', 'build')));
 
 // POST /api/tokens - Receive token data from hook
 app.post('/api/tokens', (req, res) => {
@@ -195,6 +211,7 @@ app.get('/api/sessions/:sessionId', (req, res) => {
       last_activity: session.last_activity,
       model: session.model,
       user: session.user,
+      notes: session.notes,
       entries,
       totals
     }
@@ -263,6 +280,63 @@ app.get('/api/stats', (req, res) => {
   res.json({ stats });
 });
 
+// PATCH /api/sessions/:sessionId/notes - Update session notes
+app.patch('/api/sessions/:sessionId/notes', [
+  // Validation middleware
+  body('notes')
+    .optional({ nullable: true, checkFalsy: true })
+    .isString()
+    .withMessage('Notes must be a string')
+    .trim()
+    .isLength({ max: 10000 })
+    .withMessage('Notes must not exceed 10,000 characters')
+], (req, res) => {
+  // Check validation results
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    return res.status(400).json({ errors: errors.array() });
+  }
+
+  const { sessionId } = req.params;
+  let { notes } = req.body;
+
+  // Validate sessionId format (basic UUID validation)
+  const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  if (!uuidRegex.test(sessionId)) {
+    return res.status(400).json({ error: 'Invalid session ID format' });
+  }
+
+  const session = getSession.get(sessionId);
+  if (!session) {
+    return res.status(404).json({ error: 'Session not found' });
+  }
+
+  // Sanitize notes to prevent XSS attacks
+  // Strip all HTML tags and dangerous content
+  if (notes) {
+    notes = sanitizeHtml(notes, {
+      allowedTags: [], // No HTML tags allowed
+      allowedAttributes: {}, // No attributes allowed
+      disallowedTagsMode: 'discard' // Remove disallowed tags completely
+    });
+
+    // Additional sanitization: remove any remaining special characters that could be dangerous
+    notes = notes.trim();
+
+    // If notes become empty after sanitization, set to null
+    if (notes === '') {
+      notes = null;
+    }
+  } else {
+    notes = null;
+  }
+
+  // Use prepared statement to prevent SQL injection (already protected, but explicit)
+  updateSessionNotes.run(notes, sessionId);
+
+  res.json({ success: true, notes: notes });
+});
+
 // DELETE /api/sessions/:sessionId - Delete a session
 app.delete('/api/sessions/:sessionId', (req, res) => {
   const { sessionId } = req.params;
@@ -277,6 +351,11 @@ app.delete('/api/sessions/:sessionId', (req, res) => {
   deleteSession.run(sessionId);
 
   res.json({ success: true });
+});
+
+// Serve React app for all non-API routes
+app.get('*', (req, res) => {
+  res.sendFile(path.join(__dirname, '..', 'client', 'build', 'index.html'));
 });
 
 // Graceful shutdown

@@ -499,6 +499,97 @@ tbody tr:hover {
   background: #334155;
 }
 
+/* Session Notes */
+.session-notes {
+  background: #0f172a;
+  border-radius: 0.5rem;
+  padding: 1rem;
+  margin: 1rem 0;
+  border: 1px solid #334155;
+}
+
+.notes-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.75rem;
+}
+
+.notes-header h3 {
+  margin: 0;
+}
+
+.notes-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.edit-notes-btn, .save-notes-btn, .cancel-notes-btn {
+  font-size: 0.875rem;
+  padding: 0.375rem 0.75rem;
+}
+
+.edit-notes-btn {
+  background: #475569;
+}
+
+.edit-notes-btn:hover {
+  background: #64748b;
+}
+
+.save-notes-btn {
+  background: #22c55e;
+}
+
+.save-notes-btn:hover {
+  background: #16a34a;
+}
+
+.cancel-notes-btn {
+  background: #475569;
+}
+
+.cancel-notes-btn:hover {
+  background: #64748b;
+}
+
+.notes-input {
+  width: 100%;
+  background: #1e293b;
+  color: #e2e8f0;
+  border: 1px solid #334155;
+  border-radius: 0.375rem;
+  padding: 0.75rem;
+  font-size: 0.875rem;
+  font-family: inherit;
+  line-height: 1.5;
+  resize: vertical;
+  transition: border-color 0.2s;
+}
+
+.notes-input:focus {
+  outline: none;
+  border-color: #3b82f6;
+}
+
+.notes-input::placeholder {
+  color: #64748b;
+}
+
+.notes-display {
+  color: #94a3b8;
+  font-size: 0.875rem;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  margin: 0;
+}
+
+.notes-display:empty::before {
+  content: 'No notes added yet. Click "Add Notes" to describe what you were working on.';
+  color: #64748b;
+  font-style: italic;
+}
+
 @media (max-width: 900px) {
   .stats-row {
     grid-template-columns: repeat(3, 1fr);
