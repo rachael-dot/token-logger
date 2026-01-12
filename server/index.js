@@ -201,13 +201,64 @@ app.get('/api/sessions/:sessionId', (req, res) => {
   });
 });
 
-// GET /api/stats - Get overall statistics
-app.get('/api/stats', (req, res) => {
-  const stats = getOverallStats.get();
+// GET /api/users - Get list of unique users
+app.get('/api/users', (req, res) => {
+  const users = db.prepare(`
+    SELECT DISTINCT user
+    FROM sessions
+    WHERE user IS NOT NULL
+    ORDER BY user ASC
+  `).all();
 
-  // Get session count separately since entries table might be empty
-  const sessionCount = db.prepare('SELECT COUNT(*) as count FROM sessions').get();
-  stats.total_sessions = sessionCount.count;
+  res.json({ users: users.map(u => u.user) });
+});
+
+// GET /api/stats - Get overall statistics with optional date and user filtering
+app.get('/api/stats', (req, res) => {
+  const { startDate, endDate, user } = req.query;
+
+  let stats;
+  let sessionCount;
+
+  // Build WHERE clause based on filters
+  let whereClauses = [];
+  let params = [];
+
+  if (startDate && endDate) {
+    whereClauses.push('e.timestamp >= ? AND e.timestamp <= ?');
+    params.push(startDate, endDate);
+  }
+
+  if (user) {
+    whereClauses.push('s.user = ?');
+    params.push(user);
+  }
+
+  if (whereClauses.length > 0) {
+    // Filter by date range and/or user
+    const whereClause = whereClauses.join(' AND ');
+    const filteredStats = db.prepare(`
+      SELECT
+        COUNT(DISTINCT e.session_id) as total_sessions,
+        COUNT(*) as total_requests,
+        COALESCE(SUM(e.input_tokens), 0) as total_input_tokens,
+        COALESCE(SUM(e.output_tokens), 0) as total_output_tokens,
+        COALESCE(SUM(e.cache_read_tokens), 0) as total_cache_read_tokens,
+        COALESCE(SUM(e.cache_creation_tokens), 0) as total_cache_creation_tokens,
+        COALESCE(SUM(e.total_tokens), 0) as total_tokens
+      FROM entries e
+      JOIN sessions s ON e.session_id = s.id
+      WHERE ${whereClause}
+    `).get(...params);
+
+    stats = filteredStats;
+  } else {
+    stats = getOverallStats.get();
+
+    // Get session count separately since entries table might be empty
+    sessionCount = db.prepare('SELECT COUNT(*) as count FROM sessions').get();
+    stats.total_sessions = sessionCount.count;
+  }
 
   res.json({ stats });
 });
