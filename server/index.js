@@ -2,6 +2,8 @@ const express = require('express');
 const cors = require('cors');
 const Database = require('better-sqlite3');
 const path = require('path');
+const { body, validationResult } = require('express-validator');
+const sanitizeHtml = require('sanitize-html');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -279,18 +281,60 @@ app.get('/api/stats', (req, res) => {
 });
 
 // PATCH /api/sessions/:sessionId/notes - Update session notes
-app.patch('/api/sessions/:sessionId/notes', (req, res) => {
+app.patch('/api/sessions/:sessionId/notes', [
+  // Validation middleware
+  body('notes')
+    .optional({ nullable: true, checkFalsy: true })
+    .isString()
+    .withMessage('Notes must be a string')
+    .trim()
+    .isLength({ max: 10000 })
+    .withMessage('Notes must not exceed 10,000 characters')
+], (req, res) => {
+  // Check validation results
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    return res.status(400).json({ errors: errors.array() });
+  }
+
   const { sessionId } = req.params;
-  const { notes } = req.body;
+  let { notes } = req.body;
+
+  // Validate sessionId format (basic UUID validation)
+  const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  if (!uuidRegex.test(sessionId)) {
+    return res.status(400).json({ error: 'Invalid session ID format' });
+  }
 
   const session = getSession.get(sessionId);
   if (!session) {
     return res.status(404).json({ error: 'Session not found' });
   }
 
-  updateSessionNotes.run(notes || null, sessionId);
+  // Sanitize notes to prevent XSS attacks
+  // Strip all HTML tags and dangerous content
+  if (notes) {
+    notes = sanitizeHtml(notes, {
+      allowedTags: [], // No HTML tags allowed
+      allowedAttributes: {}, // No attributes allowed
+      disallowedTagsMode: 'discard' // Remove disallowed tags completely
+    });
 
-  res.json({ success: true, notes: notes || null });
+    // Additional sanitization: remove any remaining special characters that could be dangerous
+    notes = notes.trim();
+
+    // If notes become empty after sanitization, set to null
+    if (notes === '') {
+      notes = null;
+    }
+  } else {
+    notes = null;
+  }
+
+  // Use prepared statement to prevent SQL injection (already protected, but explicit)
+  updateSessionNotes.run(notes, sessionId);
+
+  res.json({ success: true, notes: notes });
 });
 
 // DELETE /api/sessions/:sessionId - Delete a session

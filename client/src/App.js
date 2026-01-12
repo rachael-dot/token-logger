@@ -201,9 +201,15 @@ function App() {
         body: JSON.stringify({ notes: notesInput })
       });
 
-      if (!res.ok) throw new Error('Failed to save notes');
+      if (!res.ok) {
+        const errorData = await res.json();
+        throw new Error(errorData.error || errorData.errors?.[0]?.msg || 'Failed to save notes');
+      }
 
-      setSelectedSession({ ...selectedSession, notes: notesInput });
+      const data = await res.json();
+      // Use the sanitized notes from the server response
+      setSelectedSession({ ...selectedSession, notes: data.notes });
+      setNotesInput(data.notes || '');
       setEditingNotes(false);
     } catch (err) {
       setError(err.message);
@@ -514,6 +520,7 @@ function App() {
                 placeholder="Add notes about what you were working on..."
                 className="notes-input"
                 rows={4}
+                maxLength={10000}
               />
             ) : (
               <p className="notes-display">
