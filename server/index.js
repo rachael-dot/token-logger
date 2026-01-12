@@ -206,6 +206,7 @@ app.get('/api/sessions/:sessionId', (req, res) => {
       last_activity: session.last_activity,
       model: session.model,
       user: session.user,
+      notes: session.notes,
       entries,
       totals
     }
