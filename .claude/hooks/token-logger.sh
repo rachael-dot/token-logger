@@ -21,22 +21,29 @@ extract_and_send_tokens() {
         return
     fi
 
-    # Get the most recent API response with usage data
-    # The transcript contains JSONL entries; we look for usage information
-    local usage_data=$(tail -100 "$transcript" | grep -o '"usage":{[^}]*}' | tail -1)
+    # Get the most recent API response with usage data using jq for proper JSON parsing
+    # The transcript contains JSONL entries; find the last one with usage data
+    local usage_line=$(tail -100 "$transcript" | grep '"usage"' | tail -1)
 
-    if [ -n "$usage_data" ]; then
-        # Extract individual token counts
-        local input_tokens=$(echo "$usage_data" | grep -o '"input_tokens":[0-9]*' | grep -o '[0-9]*' | tail -1)
-        local output_tokens=$(echo "$usage_data" | grep -o '"output_tokens":[0-9]*' | grep -o '[0-9]*' | tail -1)
-        local cache_read=$(echo "$usage_data" | grep -o '"cache_read_input_tokens":[0-9]*' | grep -o '[0-9]*' | tail -1)
-        local cache_creation=$(echo "$usage_data" | grep -o '"cache_creation_input_tokens":[0-9]*' | grep -o '[0-9]*' | tail -1)
+    if [ -n "$usage_line" ]; then
+        # Use jq to properly extract token counts - usage is nested inside .message
+        local input_tokens=$(echo "$usage_line" | jq -r '.message.usage.input_tokens // 0' 2>/dev/null)
+        local output_tokens=$(echo "$usage_line" | jq -r '.message.usage.output_tokens // 0' 2>/dev/null)
+        local cache_read=$(echo "$usage_line" | jq -r '.message.usage.cache_read_input_tokens // 0' 2>/dev/null)
+        local cache_creation=$(echo "$usage_line" | jq -r '.message.usage.cache_creation_input_tokens // 0' 2>/dev/null)
+        local model=$(echo "$usage_line" | jq -r '.message.model // ""' 2>/dev/null)
 
-        # Default to 0 if not found
+        # Default to 0 if jq failed or returned null
         input_tokens=${input_tokens:-0}
         output_tokens=${output_tokens:-0}
         cache_read=${cache_read:-0}
         cache_creation=${cache_creation:-0}
+
+        # Ensure they're numbers
+        [[ "$input_tokens" =~ ^[0-9]+$ ]] || input_tokens=0
+        [[ "$output_tokens" =~ ^[0-9]+$ ]] || output_tokens=0
+        [[ "$cache_read" =~ ^[0-9]+$ ]] || cache_read=0
+        [[ "$cache_creation" =~ ^[0-9]+$ ]] || cache_creation=0
 
         local total_tokens=$((input_tokens + output_tokens))
 
@@ -53,6 +60,8 @@ extract_and_send_tokens() {
                     \"output_tokens\": ${output_tokens},
                     \"cache_read_tokens\": ${cache_read},
                     \"cache_creation_tokens\": ${cache_creation},
+                    \"model\": \"${model}\",
+                    \"user\": \"${USER}\",
                     \"timestamp\": \"${timestamp}\"
                 }" > /dev/null 2>&1 || true
         fi
