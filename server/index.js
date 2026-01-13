@@ -43,6 +43,13 @@ try {
   // Column already exists, ignore
 }
 
+// Add tags column if it doesn't exist (migration for existing databases)
+try {
+  db.exec(`ALTER TABLE sessions ADD COLUMN tags TEXT DEFAULT '[]'`);
+} catch (e) {
+  // Column already exists, ignore
+}
+
 db.exec(`
   CREATE TABLE IF NOT EXISTS entries (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -122,6 +129,17 @@ const updateSessionNotes = db.prepare(`
   UPDATE sessions SET notes = ? WHERE id = ?
 `);
 
+const updateSessionTags = db.prepare(`
+  UPDATE sessions SET tags = ? WHERE id = ?
+`);
+
+const getAllTags = db.prepare(`
+  SELECT DISTINCT json_each.value as tag
+  FROM sessions, json_each(sessions.tags)
+  WHERE sessions.tags IS NOT NULL AND sessions.tags != '[]'
+  ORDER BY tag ASC
+`);
+
 app.use(cors());
 app.use(express.json());
 
@@ -185,6 +203,7 @@ app.get('/api/sessions', (req, res) => {
       last_activity: session.last_activity,
       model: session.model,
       user: session.user,
+      tags: session.tags ? JSON.parse(session.tags) : [],
       totals
     };
   });
@@ -212,6 +231,7 @@ app.get('/api/sessions/:sessionId', (req, res) => {
       model: session.model,
       user: session.user,
       notes: session.notes,
+      tags: session.tags ? JSON.parse(session.tags) : [],
       entries,
       totals
     }
@@ -335,6 +355,91 @@ app.patch('/api/sessions/:sessionId/notes', [
   updateSessionNotes.run(notes, sessionId);
 
   res.json({ success: true, notes: notes });
+});
+
+// PATCH /api/sessions/:sessionId/tags - Update session tags
+app.patch('/api/sessions/:sessionId/tags', [
+  // Validation middleware
+  body('tags')
+    .optional({ nullable: true })
+    .isArray()
+    .withMessage('Tags must be an array')
+    .custom((tags) => {
+      if (tags.length > 10) {
+        throw new Error('Maximum 10 tags allowed per session');
+      }
+      return true;
+    }),
+  body('tags.*')
+    .trim()
+    .isLength({ min: 1, max: 50 })
+    .withMessage('Each tag must be between 1 and 50 characters')
+    .matches(/^[a-zA-Z0-9\s\-_]+$/)
+    .withMessage('Tags can only contain letters, numbers, spaces, hyphens, and underscores')
+], (req, res) => {
+  // Check validation results
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    return res.status(400).json({ errors: errors.array() });
+  }
+
+  const { sessionId } = req.params;
+  let { tags } = req.body;
+
+  // Validate sessionId format (basic UUID validation)
+  const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  if (!uuidRegex.test(sessionId)) {
+    return res.status(400).json({ error: 'Invalid session ID format' });
+  }
+
+  const session = getSession.get(sessionId);
+  if (!session) {
+    return res.status(404).json({ error: 'Session not found' });
+  }
+
+  // Process tags
+  if (tags && Array.isArray(tags)) {
+    // Normalize tags: trim, deduplicate (case-insensitive), remove empty
+    tags = tags
+      .map(tag => tag.trim())
+      .filter(tag => tag.length > 0);
+
+    // Remove duplicates (case-insensitive)
+    const seenTags = new Set();
+    tags = tags.filter(tag => {
+      const lowerTag = tag.toLowerCase();
+      if (seenTags.has(lowerTag)) {
+        return false;
+      }
+      seenTags.add(lowerTag);
+      return true;
+    });
+
+    // Sanitize each tag
+    tags = tags.map(tag =>
+      sanitizeHtml(tag, {
+        allowedTags: [],
+        allowedAttributes: {},
+        disallowedTagsMode: 'discard'
+      })
+    );
+  } else {
+    tags = [];
+  }
+
+  // Convert to JSON string for storage
+  const tagsJson = JSON.stringify(tags);
+
+  // Use prepared statement
+  updateSessionTags.run(tagsJson, sessionId);
+
+  res.json({ success: true, tags: tags });
+});
+
+// GET /api/tags - Get list of all unique tags
+app.get('/api/tags', (req, res) => {
+  const tags = getAllTags.all();
+  res.json({ tags: tags.map(t => t.tag) });
 });
 
 // DELETE /api/sessions/:sessionId - Delete a session
