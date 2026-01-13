@@ -521,6 +521,10 @@ function App() {
               <h3>Cache Read</h3>
               <p className="stat-value">{formatNumber(stats.total_cache_read_tokens)}</p>
             </div>
+            <div className="stat-card">
+              <h3>Cache Write</h3>
+              <p className="stat-value">{formatNumber(stats.total_cache_creation_tokens)}</p>
+            </div>
           </div>
           <div className="stats-summary">
             <div className="stat-card highlight">
