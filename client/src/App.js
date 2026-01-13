@@ -70,6 +70,11 @@ function App() {
   const [selectedUser, setSelectedUser] = useState('all');
   const [editingNotes, setEditingNotes] = useState(false);
   const [notesInput, setNotesInput] = useState('');
+  const [tags, setTags] = useState([]);
+  const [selectedTags, setSelectedTags] = useState([]);
+  const [editingTags, setEditingTags] = useState(false);
+  const [tagInput, setTagInput] = useState('');
+  const [sessionTags, setSessionTags] = useState([]);
 
   // Helper function to calculate date range based on timeframe
   const getDateRange = useCallback(() => {
@@ -127,6 +132,18 @@ function App() {
     }
   }, []);
 
+  const fetchTags = useCallback(async () => {
+    try {
+      const res = await fetch(`${API_BASE}/tags`);
+      if (res.ok) {
+        const data = await res.json();
+        setTags(data.tags);
+      }
+    } catch (err) {
+      console.error('Failed to fetch tags:', err);
+    }
+  }, []);
+
   const fetchData = useCallback(async () => {
     try {
       setError(null);
@@ -170,7 +187,8 @@ function App() {
 
   useEffect(() => {
     fetchUsers();
-  }, [fetchUsers]);
+    fetchTags();
+  }, [fetchUsers, fetchTags]);
 
   useEffect(() => {
     fetchData();
@@ -185,7 +203,9 @@ function App() {
       const data = await res.json();
       setSelectedSession(data.session);
       setNotesInput(data.session.notes || '');
+      setSessionTags(data.session.tags || []);
       setEditingNotes(false);
+      setEditingTags(false);
     } catch (err) {
       setError(err.message);
     }
@@ -219,6 +239,50 @@ function App() {
   const cancelEditNotes = () => {
     setNotesInput(selectedSession?.notes || '');
     setEditingNotes(false);
+  };
+
+  const saveTags = async () => {
+    if (!selectedSession) return;
+
+    try {
+      const res = await fetch(`${API_BASE}/sessions/${selectedSession.id}/tags`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tags: sessionTags })
+      });
+
+      if (!res.ok) {
+        const errorData = await res.json();
+        throw new Error(errorData.error || errorData.errors?.[0]?.msg || 'Failed to save tags');
+      }
+
+      const data = await res.json();
+      setSelectedSession({ ...selectedSession, tags: data.tags });
+      setSessionTags(data.tags);
+      setEditingTags(false);
+      // Refresh tags list to include new tags
+      fetchTags();
+    } catch (err) {
+      setError(err.message);
+    }
+  };
+
+  const cancelEditTags = () => {
+    setSessionTags(selectedSession?.tags || []);
+    setEditingTags(false);
+    setTagInput('');
+  };
+
+  const addTag = () => {
+    const newTag = tagInput.trim();
+    if (newTag && !sessionTags.includes(newTag) && sessionTags.length < 10) {
+      setSessionTags([...sessionTags, newTag]);
+      setTagInput('');
+    }
+  };
+
+  const removeTag = (tagToRemove) => {
+    setSessionTags(sessionTags.filter(tag => tag !== tagToRemove));
   };
 
   const formatNumber = (num) => {
@@ -255,6 +319,21 @@ function App() {
     if (!id) return 'N/A';
     return id.length > 12 ? `${id.slice(0, 6)}...${id.slice(-6)}` : id;
   };
+
+  // Filter sessions based on selected tags
+  const getFilteredSessions = useCallback((sessions) => {
+    if (selectedTags.length === 0) {
+      return sessions;
+    }
+
+    return sessions.filter(session => {
+      const sessionTagList = session.tags || [];
+      // Session must have at least one of the selected tags
+      return selectedTags.some(selectedTag =>
+        sessionTagList.includes(selectedTag)
+      );
+    });
+  }, [selectedTags]);
 
   // Sort sessions based on selected sort option
   const getSortedSessions = useCallback((sessions) => {
@@ -328,7 +407,6 @@ function App() {
     <div className="container">
       <header>
         <h1>Claude Session Dashboard</h1>
-        <button onClick={fetchData} className="refresh-btn">Refresh</button>
       </header>
 
       {stats && (
@@ -388,6 +466,40 @@ function App() {
               )}
             </div>
           </div>
+          {tags.length > 0 && (
+            <div className="tag-filter-row">
+              <div className="tag-filter">
+                <label>
+                  Filter by Tags:
+                  <div className="tag-filter-chips">
+                    {tags.map(tag => (
+                      <button
+                        key={tag}
+                        onClick={() => {
+                          if (selectedTags.includes(tag)) {
+                            setSelectedTags(selectedTags.filter(t => t !== tag));
+                          } else {
+                            setSelectedTags([...selectedTags, tag]);
+                          }
+                        }}
+                        className={`tag-filter-chip ${selectedTags.includes(tag) ? 'active' : ''}`}
+                      >
+                        {tag}
+                      </button>
+                    ))}
+                  </div>
+                  {selectedTags.length > 0 && (
+                    <button
+                      onClick={() => setSelectedTags([])}
+                      className="clear-tags-btn"
+                    >
+                      Clear tag filters
+                    </button>
+                  )}
+                </label>
+              </div>
+            </div>
+          )}
           <div className="stats-row">
             <div className="stat-card">
               <h3>Sessions</h3>
@@ -408,6 +520,10 @@ function App() {
             <div className="stat-card">
               <h3>Cache Read</h3>
               <p className="stat-value">{formatNumber(stats.total_cache_read_tokens)}</p>
+            </div>
+            <div className="stat-card">
+              <h3>Cache Write</h3>
+              <p className="stat-value">{formatNumber(stats.total_cache_creation_tokens)}</p>
             </div>
           </div>
           <div className="stats-summary">
@@ -454,7 +570,7 @@ function App() {
           <p className="empty-state">No sessions recorded yet. Start using Claude Code with the token logger hook enabled.</p>
         ) : (
           <div className="sessions-list">
-            {getSortedSessions(sessions).map((session) => (
+            {getSortedSessions(getFilteredSessions(sessions)).map((session) => (
               <div
                 key={session.id}
                 className={`session-card ${selectedSession?.id === session.id ? 'selected' : ''}`}
@@ -468,6 +584,15 @@ function App() {
                     <span className="session-requests">{session.totals.request_count} requests</span>
                   </div>
                 </div>
+                {session.tags && session.tags.length > 0 && (
+                  <div className="session-tags">
+                    <div className="tag-list">
+                      {session.tags.map(tag => (
+                        <span key={tag} className="tag-badge">{tag}</span>
+                      ))}
+                    </div>
+                  </div>
+                )}
                 <div className="session-tokens">
                   <span>In: {formatNumber(session.totals.input_tokens)}</span>
                   <span>Out: {formatNumber(session.totals.output_tokens)}</span>
@@ -526,6 +651,83 @@ function App() {
               <p className="notes-display">
                 {selectedSession.notes || 'No notes added yet. Click "Add Notes" to describe what you were working on.'}
               </p>
+            )}
+          </div>
+
+          <div className="session-tags-section">
+            <div className="tags-header">
+              <h3>Tags</h3>
+              {!editingTags ? (
+                <button onClick={() => setEditingTags(true)} className="edit-tags-btn">
+                  {selectedSession.tags && selectedSession.tags.length > 0 ? 'Edit Tags' : 'Add Tags'}
+                </button>
+              ) : (
+                <div className="tags-actions">
+                  <button onClick={saveTags} className="save-tags-btn">Save</button>
+                  <button onClick={cancelEditTags} className="cancel-tags-btn">Cancel</button>
+                </div>
+              )}
+            </div>
+            {editingTags ? (
+              <div className="tags-editor">
+                <div className="tag-input-wrapper">
+                  <input
+                    type="text"
+                    value={tagInput}
+                    onChange={(e) => setTagInput(e.target.value)}
+                    onKeyPress={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        addTag();
+                      }
+                    }}
+                    placeholder="Type a tag and press Enter..."
+                    className="tag-input"
+                    maxLength={50}
+                    list="tag-suggestions"
+                  />
+                  <datalist id="tag-suggestions">
+                    {tags
+                      .filter(tag => !sessionTags.includes(tag))
+                      .map(tag => (
+                        <option key={tag} value={tag} />
+                      ))}
+                  </datalist>
+                  <button onClick={addTag} className="add-tag-btn">Add</button>
+                </div>
+                <div className="current-tags">
+                  {sessionTags.map(tag => (
+                    <span key={tag} className="tag-badge editable">
+                      {tag}
+                      <button
+                        onClick={() => removeTag(tag)}
+                        className="remove-tag-btn"
+                        aria-label={`Remove ${tag}`}
+                      >
+                        ×
+                      </button>
+                    </span>
+                  ))}
+                </div>
+                {sessionTags.length === 0 && (
+                  <p className="no-tags-message">No tags added yet. Add tags to organize your sessions.</p>
+                )}
+                {sessionTags.length >= 10 && (
+                  <p className="tag-limit-message">Maximum 10 tags reached.</p>
+                )}
+              </div>
+            ) : (
+              <div className="tags-display">
+                {selectedSession.tags && selectedSession.tags.length > 0 ? (
+                  <div className="tag-list">
+                    {selectedSession.tags.map(tag => (
+                      <span key={tag} className="tag-badge">{tag}</span>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="no-tags-message">No tags added yet. Click "Add Tags" to organize this session.</p>
+                )}
+              </div>
             )}
           </div>
 
