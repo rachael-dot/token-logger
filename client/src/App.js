@@ -407,7 +407,6 @@ function App() {
     <div className="container">
       <header>
         <h1>Claude Session Dashboard</h1>
-        <button onClick={fetchData} className="refresh-btn">Refresh</button>
       </header>
 
       {stats && (
