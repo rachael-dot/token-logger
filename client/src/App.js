@@ -327,6 +327,12 @@ function App() {
     return `$${cost.toFixed(2)}`;
   };
 
+  const formatDuration = (ms) => {
+    if (!ms || ms === 0) return '-';
+    if (ms < 1000) return `${ms}ms`;
+    return `${(ms / 1000).toFixed(2)}s`;
+  };
+
   const truncateId = (id) => {
     if (!id) return 'N/A';
     return id.length > 12 ? `${id.slice(0, 6)}...${id.slice(-6)}` : id;
@@ -794,6 +800,7 @@ function App() {
                 <tr>
                   <th>#</th>
                   <th>Time</th>
+                  <th>Duration</th>
                   <th>Input</th>
                   <th>Output</th>
                   <th>Cache Read</th>
@@ -807,6 +814,7 @@ function App() {
                   <tr key={idx}>
                     <td>{idx + 1}</td>
                     <td>{formatDate(entry.timestamp)}</td>
+                    <td className="duration">{formatDuration(entry.duration_ms)}</td>
                     <td>{formatNumber(entry.input_tokens)}</td>
                     <td>{formatNumber(entry.output_tokens)}</td>
                     <td>{formatNumber(entry.cache_read_tokens)}</td>
@@ -824,6 +832,7 @@ function App() {
               <tfoot>
                 <tr>
                   <td colSpan="2"><strong>Session Total</strong></td>
+                  <td><strong>-</strong></td>
                   <td><strong>{formatNumber(selectedSession.totals.input_tokens)}</strong></td>
                   <td><strong>{formatNumber(selectedSession.totals.output_tokens)}</strong></td>
                   <td><strong>{formatNumber(selectedSession.totals.cache_read_tokens)}</strong></td>

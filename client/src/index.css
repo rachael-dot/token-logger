@@ -582,6 +582,11 @@ td.cost {
   color: #4ade80;
 }
 
+td.duration {
+  color: #a78bfa;
+  font-weight: 500;
+}
+
 tfoot td {
   border-top: 2px solid #334155;
   border-bottom: none;

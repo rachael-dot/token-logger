@@ -33,6 +33,27 @@ extract_and_send_tokens() {
         local cache_creation=$(echo "$usage_line" | jq -r '.message.usage.cache_creation_input_tokens // 0' 2>/dev/null)
         local model=$(echo "$usage_line" | jq -r '.message.model // ""' 2>/dev/null)
 
+        # Calculate duration by finding the time between request and response
+        # Look for the last API request (type: "api_request") and response timestamps
+        local duration_ms=0
+
+        # Extract timestamps for the last request and response
+        local request_line=$(tail -100 "$transcript" | grep '"type":"api_request"' | tail -1)
+        local response_timestamp=$(echo "$usage_line" | jq -r '.timestamp // ""' 2>/dev/null)
+        local request_timestamp=$(echo "$request_line" | jq -r '.timestamp // ""' 2>/dev/null)
+
+        if [ -n "$request_timestamp" ] && [ -n "$response_timestamp" ]; then
+            # Convert ISO timestamps to epoch milliseconds and calculate difference
+            local request_ms=$(date -j -f "%Y-%m-%dT%H:%M:%S" "${request_timestamp%.*}" "+%s" 2>/dev/null || echo "0")
+            local response_ms=$(date -j -f "%Y-%m-%dT%H:%M:%S" "${response_timestamp%.*}" "+%s" 2>/dev/null || echo "0")
+
+            if [ "$request_ms" -gt 0 ] && [ "$response_ms" -gt 0 ]; then
+                duration_ms=$(( (response_ms - request_ms) * 1000 ))
+                # Ensure duration is positive
+                [ "$duration_ms" -lt 0 ] && duration_ms=0
+            fi
+        fi
+
         # Default to 0 if jq failed or returned null
         input_tokens=${input_tokens:-0}
         output_tokens=${output_tokens:-0}
@@ -62,7 +83,8 @@ extract_and_send_tokens() {
                     \"cache_creation_tokens\": ${cache_creation},
                     \"model\": \"${model}\",
                     \"user\": \"${USER}\",
-                    \"timestamp\": \"${timestamp}\"
+                    \"timestamp\": \"${timestamp}\",
+                    \"duration_ms\": ${duration_ms}
                 }" > /dev/null 2>&1 || true
         fi
     fi

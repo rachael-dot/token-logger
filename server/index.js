@@ -60,9 +60,17 @@ db.exec(`
     cache_read_tokens INTEGER DEFAULT 0,
     cache_creation_tokens INTEGER DEFAULT 0,
     total_tokens INTEGER DEFAULT 0,
+    duration_ms INTEGER DEFAULT 0,
     FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
   )
 `);
+
+// Add duration_ms column if it doesn't exist (migration for existing databases)
+try {
+  db.exec(`ALTER TABLE entries ADD COLUMN duration_ms INTEGER DEFAULT 0`);
+} catch (e) {
+  // Column already exists, ignore
+}
 
 // Enable foreign keys
 db.pragma('foreign_keys = ON');
@@ -78,8 +86,8 @@ const updateSessionActivity = db.prepare(`
 `);
 
 const insertEntry = db.prepare(`
-  INSERT INTO entries (session_id, timestamp, input_tokens, output_tokens, cache_read_tokens, cache_creation_tokens, total_tokens)
-  VALUES (?, ?, ?, ?, ?, ?, ?)
+  INSERT INTO entries (session_id, timestamp, input_tokens, output_tokens, cache_read_tokens, cache_creation_tokens, total_tokens, duration_ms)
+  VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 `);
 
 const getSession = db.prepare(`
@@ -156,7 +164,8 @@ app.post('/api/tokens', (req, res) => {
     cache_creation_tokens,
     model,
     user,
-    timestamp
+    timestamp,
+    duration_ms
   } = req.body;
 
   if (!session_id) {
@@ -170,7 +179,8 @@ app.post('/api/tokens', (req, res) => {
     output_tokens: output_tokens || 0,
     cache_read_tokens: cache_read_tokens || 0,
     cache_creation_tokens: cache_creation_tokens || 0,
-    total_tokens: (input_tokens || 0) + (output_tokens || 0)
+    total_tokens: (input_tokens || 0) + (output_tokens || 0),
+    duration_ms: duration_ms || 0
   };
 
   // Insert session if it doesn't exist
@@ -187,7 +197,8 @@ app.post('/api/tokens', (req, res) => {
     entry.output_tokens,
     entry.cache_read_tokens,
     entry.cache_creation_tokens,
-    entry.total_tokens
+    entry.total_tokens,
+    entry.duration_ms
   );
 
   res.json({ success: true, entry });
