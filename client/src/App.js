@@ -75,6 +75,8 @@ function App() {
   const [editingTags, setEditingTags] = useState(false);
   const [tagInput, setTagInput] = useState('');
   const [sessionTags, setSessionTags] = useState([]);
+  const [viewMode, setViewMode] = useState('claude-cli');
+  const [dropdownOpen, setDropdownOpen] = useState(false);
 
   // Helper function to calculate date range based on timeframe
   const getDateRange = useCallback(() => {
@@ -195,6 +197,16 @@ function App() {
     const interval = setInterval(fetchData, 5000);
     return () => clearInterval(interval);
   }, [fetchData]);
+
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (dropdownOpen && !event.target.closest('.custom-dropdown')) {
+        setDropdownOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [dropdownOpen]);
 
   const fetchSessionDetails = async (sessionId) => {
     try {
@@ -406,10 +418,54 @@ function App() {
   return (
     <div className="container">
       <header>
-        <h1>Claude Session Dashboard</h1>
+        <div className="header-title-group">
+          <h1>Token Logger</h1>
+          <div className="custom-dropdown">
+            <button
+              className="dropdown-toggle"
+              onClick={() => setDropdownOpen(!dropdownOpen)}
+            >
+              <span className="dropdown-label">
+                {viewMode === 'claude-cli' ? 'Claude CLI' : viewMode === 'openhands' ? 'OpenHands' : 'Devin'}
+              </span>
+              <span className="dropdown-arrow">{dropdownOpen ? '▲' : '▼'}</span>
+            </button>
+            {dropdownOpen && (
+              <div className="dropdown-menu">
+                <button
+                  className={`dropdown-item ${viewMode === 'claude-cli' ? 'active' : ''}`}
+                  onClick={() => {
+                    setViewMode('claude-cli');
+                    setDropdownOpen(false);
+                  }}
+                >
+                  Claude CLI
+                </button>
+                <button
+                  className={`dropdown-item ${viewMode === 'openhands' ? 'active' : ''}`}
+                  onClick={() => {
+                    setViewMode('openhands');
+                    setDropdownOpen(false);
+                  }}
+                >
+                  OpenHands
+                </button>
+                <button
+                  className={`dropdown-item ${viewMode === 'devin' ? 'active' : ''}`}
+                  onClick={() => {
+                    setViewMode('devin');
+                    setDropdownOpen(false);
+                  }}
+                >
+                  Devin
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
       </header>
 
-      {stats && (
+      {viewMode === 'claude-cli' && stats && (
         <section className="stats-section">
           <div className="stats-header">
             <h2>Usage Statistics</h2>
@@ -466,40 +522,6 @@ function App() {
               )}
             </div>
           </div>
-          {tags.length > 0 && (
-            <div className="tag-filter-row">
-              <div className="tag-filter">
-                <label>
-                  Filter by Tags:
-                  <div className="tag-filter-chips">
-                    {tags.map(tag => (
-                      <button
-                        key={tag}
-                        onClick={() => {
-                          if (selectedTags.includes(tag)) {
-                            setSelectedTags(selectedTags.filter(t => t !== tag));
-                          } else {
-                            setSelectedTags([...selectedTags, tag]);
-                          }
-                        }}
-                        className={`tag-filter-chip ${selectedTags.includes(tag) ? 'active' : ''}`}
-                      >
-                        {tag}
-                      </button>
-                    ))}
-                  </div>
-                  {selectedTags.length > 0 && (
-                    <button
-                      onClick={() => setSelectedTags([])}
-                      className="clear-tags-btn"
-                    >
-                      Clear tag filters
-                    </button>
-                  )}
-                </label>
-              </div>
-            </div>
-          )}
           <div className="stats-row">
             <div className="stat-card">
               <h3>Sessions</h3>
@@ -544,7 +566,8 @@ function App() {
         </section>
       )}
 
-      <section className="sessions-section">
+      {viewMode === 'claude-cli' && (
+        <section className="sessions-section">
         <div className="sessions-header">
           <h2>Sessions</h2>
           <div className="sort-controls">
@@ -566,6 +589,37 @@ function App() {
             </label>
           </div>
         </div>
+        {tags.length > 0 && (
+          <div className="tag-filter-row">
+            <div className="tag-filter">
+              <div className="tag-filter-chips">
+                {tags.map(tag => (
+                  <button
+                    key={tag}
+                    onClick={() => {
+                      if (selectedTags.includes(tag)) {
+                        setSelectedTags(selectedTags.filter(t => t !== tag));
+                      } else {
+                        setSelectedTags([...selectedTags, tag]);
+                      }
+                    }}
+                    className={`tag-filter-chip ${selectedTags.includes(tag) ? 'active' : ''}`}
+                  >
+                    {tag}
+                  </button>
+                ))}
+              </div>
+              {selectedTags.length > 0 && (
+                <button
+                  onClick={() => setSelectedTags([])}
+                  className="clear-tags-btn"
+                >
+                  Clear tag filters
+                </button>
+              )}
+            </div>
+          </div>
+        )}
         {sessions.length === 0 ? (
           <p className="empty-state">No sessions recorded yet. Start using Claude Code with the token logger hook enabled.</p>
         ) : (
@@ -612,8 +666,9 @@ function App() {
           </div>
         )}
       </section>
+      )}
 
-      {selectedSession && (
+      {viewMode === 'claude-cli' && selectedSession && (
         <section className="session-details">
           <div className="details-header">
             <h2>Session Details</h2>
@@ -783,6 +838,24 @@ function App() {
                 </tr>
               </tfoot>
             </table>
+          </div>
+        </section>
+      )}
+
+      {viewMode === 'openhands' && (
+        <section className="openhands-section">
+          <div className="openhands-content">
+            <h2>OpenHands</h2>
+            <p className="empty-state">OpenHands tracking coming soon...</p>
+          </div>
+        </section>
+      )}
+
+      {viewMode === 'devin' && (
+        <section className="devin-section">
+          <div className="devin-content">
+            <h2>Devin</h2>
+            <p className="empty-state">Devin tracking coming soon...</p>
           </div>
         </section>
       )}
