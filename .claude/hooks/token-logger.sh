@@ -23,7 +23,8 @@ extract_and_send_tokens() {
 
     # Get the most recent API response with usage data using jq for proper JSON parsing
     # The transcript contains JSONL entries; find the last one with usage data
-    local usage_line=$(tail -100 "$transcript" | grep '"usage"' | tail -1)
+    # Use jq to filter valid JSON lines only, avoiding lines with control characters
+    local usage_line=$(tail -100 "$transcript" | while IFS= read -r line; do echo "$line" | jq -c 'select(.message.usage)' 2>/dev/null; done | tail -1)
 
     if [ -n "$usage_line" ]; then
         # Use jq to properly extract token counts - usage is nested inside .message
@@ -34,21 +35,39 @@ extract_and_send_tokens() {
         local model=$(echo "$usage_line" | jq -r '.message.model // ""' 2>/dev/null)
 
         # Calculate duration by finding the time between request and response
-        # Look for the last API request (type: "api_request") and response timestamps
+        # Look for the last user message and assistant response timestamps
         local duration_ms=0
 
-        # Extract timestamps for the last request and response
-        local request_line=$(tail -100 "$transcript" | grep '"type":"api_request"' | tail -1)
+        # Extract timestamps for the last request and response, using jq to avoid parsing errors
+        local request_line=$(tail -100 "$transcript" | while IFS= read -r line; do echo "$line" | jq -c 'select(.type == "user")' 2>/dev/null; done | tail -1)
         local response_timestamp=$(echo "$usage_line" | jq -r '.timestamp // ""' 2>/dev/null)
         local request_timestamp=$(echo "$request_line" | jq -r '.timestamp // ""' 2>/dev/null)
 
         if [ -n "$request_timestamp" ] && [ -n "$response_timestamp" ]; then
-            # Convert ISO timestamps to epoch milliseconds and calculate difference
-            local request_ms=$(date -j -f "%Y-%m-%dT%H:%M:%S" "${request_timestamp%.*}" "+%s" 2>/dev/null || echo "0")
-            local response_ms=$(date -j -f "%Y-%m-%dT%H:%M:%S" "${response_timestamp%.*}" "+%s" 2>/dev/null || echo "0")
+            # Convert ISO timestamps to epoch milliseconds with full precision
+            # Use Python for accurate timestamp parsing that preserves milliseconds
+            local request_ms=$(python3 -c "
+from datetime import datetime
+try:
+    ts = '$request_timestamp'.replace('Z', '+00:00')
+    dt = datetime.fromisoformat(ts)
+    print(int(dt.timestamp() * 1000))
+except:
+    print(0)
+" 2>/dev/null || echo "0")
+
+            local response_ms=$(python3 -c "
+from datetime import datetime
+try:
+    ts = '$response_timestamp'.replace('Z', '+00:00')
+    dt = datetime.fromisoformat(ts)
+    print(int(dt.timestamp() * 1000))
+except:
+    print(0)
+" 2>/dev/null || echo "0")
 
             if [ "$request_ms" -gt 0 ] && [ "$response_ms" -gt 0 ]; then
-                duration_ms=$(( (response_ms - request_ms) * 1000 ))
+                duration_ms=$(( response_ms - request_ms ))
                 # Ensure duration is positive
                 [ "$duration_ms" -lt 0 ] && duration_ms=0
             fi
