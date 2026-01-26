@@ -72,6 +72,7 @@ if echo "$OUTPUT" | grep -q "Breakdown by AI model:"; then
         echo "[${TIMESTAMP}] SESSION: $SESSION_ID | Model: $model | In: $input_tokens | Out: $output_tokens | Cache: $cache_read_tokens | Total: $TOTAL_TOKENS | Duration: ${DURATION}s | Command: $COMMAND_PREVIEW" >> "$LOG_FILE"
 
         # Send to API
+        DURATION_MS=$((DURATION * 1000))
         curl -s --connect-timeout 2 -X POST "${API_URL}/api/copilot/tokens" \
             -H "Content-Type: application/json" \
             -d "{
@@ -83,7 +84,7 @@ if echo "$OUTPUT" | grep -q "Breakdown by AI model:"; then
                 \"model\": \"${model}\",
                 \"user\": \"${USER}\",
                 \"timestamp\": \"${TIMESTAMP}\",
-                \"duration\": ${DURATION}
+                \"duration_ms\": ${DURATION_MS}
             }" > /dev/null 2>&1 || true
     fi
 fi

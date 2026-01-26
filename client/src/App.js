@@ -568,14 +568,23 @@ function App() {
               <h3>Output Tokens</h3>
               <p className="stat-value">{formatNumber(stats.total_output_tokens)}</p>
             </div>
-            <div className="stat-card">
-              <h3>Cache Read</h3>
-              <p className="stat-value">{formatNumber(stats.total_cache_read_tokens)}</p>
-            </div>
-            <div className="stat-card">
-              <h3>Cache Write</h3>
-              <p className="stat-value">{formatNumber(stats.total_cache_creation_tokens)}</p>
-            </div>
+            {viewMode === 'claude' ? (
+              <>
+                <div className="stat-card">
+                  <h3>Cache Read</h3>
+                  <p className="stat-value">{formatNumber(stats.total_cache_read_tokens)}</p>
+                </div>
+                <div className="stat-card">
+                  <h3>Cache Write</h3>
+                  <p className="stat-value">{formatNumber(stats.total_cache_creation_tokens)}</p>
+                </div>
+              </>
+            ) : (
+              <div className="stat-card">
+                <h3>Cache Tokens</h3>
+                <p className="stat-value">{formatNumber((stats.total_cache_read_tokens || 0) + (stats.total_cache_creation_tokens || 0))}</p>
+              </div>
+            )}
           </div>
           <div className="stats-summary">
             <div className="stat-card highlight">
@@ -679,6 +688,9 @@ function App() {
                 <div className="session-tokens">
                   <span>In: {formatNumber(session.totals.input_tokens)}</span>
                   <span>Out: {formatNumber(session.totals.output_tokens)}</span>
+                  {viewMode === 'copilot' && (
+                    <span>Cache: {formatNumber((session.totals.cache_read_tokens || 0) + (session.totals.cache_creation_tokens || 0))}</span>
+                  )}
                   <span className="total">Total: {formatNumber(session.totals.total_tokens)}</span>
                   <span className="duration">Duration: {formatDuration(session.totals.total_duration_ms)}</span>
                   <span className="cost">Cost: {formatCost(calculateCost(
@@ -698,7 +710,7 @@ function App() {
       </section>
       )}
 
-      {viewMode === 'claude-cli' && selectedSession && (
+      {(viewMode === 'claude' || viewMode === 'copilot') && selectedSession && (
         <section className="session-details">
           <div className="details-header">
             <h2>Session Details</h2>

@@ -370,9 +370,9 @@ app.patch('/api/sessions/:sessionId/notes', [
   const { sessionId } = req.params;
   let { notes } = req.body;
 
-  // Validate sessionId format (basic UUID validation)
-  const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-  if (!uuidRegex.test(sessionId)) {
+  // Validate sessionId format (UUID for Claude, timestamp-based for Copilot/others)
+  const validIdRegex = /^([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|[a-zA-Z0-9_-]+)$/i;
+  if (!validIdRegex.test(sessionId)) {
     return res.status(400).json({ error: 'Invalid session ID format' });
   }
 
@@ -436,9 +436,9 @@ app.patch('/api/sessions/:sessionId/tags', [
   const { sessionId } = req.params;
   let { tags } = req.body;
 
-  // Validate sessionId format (basic UUID validation)
-  const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-  if (!uuidRegex.test(sessionId)) {
+  // Validate sessionId format (UUID for Claude, timestamp-based for Copilot/others)
+  const validIdRegex = /^([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|[a-zA-Z0-9_-]+)$/i;
+  if (!validIdRegex.test(sessionId)) {
     return res.status(400).json({ error: 'Invalid session ID format' });
   }
 
