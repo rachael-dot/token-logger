@@ -92,7 +92,7 @@ except:
             local timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
             # POST to the API (ignore errors if server is not running)
-            curl -s --connect-timeout 2 -X POST "${API_URL}/api/tokens" \
+            curl -s --connect-timeout 2 -X POST "${API_URL}/api/claude/tokens" \
                 -H "Content-Type: application/json" \
                 -d "{
                     \"session_id\": \"${SESSION_ID}\",

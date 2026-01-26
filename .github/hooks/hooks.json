@@ -1,0 +1,32 @@
+{
+  "version": 1,
+  "hooks": {
+    "sessionStart": [
+      {
+        "type": "command",
+        "bash": "./scripts/copilot-session-start.sh",
+        "cwd": ".",
+        "timeoutSec": 5
+      }
+    ],
+    "sessionEnd": [
+      {
+        "type": "command",
+        "bash": "./scripts/copilot-session-end.sh",
+        "cwd": ".",
+        "timeoutSec": 5
+      }
+    ],
+    "userPromptSubmitted": [
+      {
+        "type": "command",
+        "bash": "./scripts/copilot-log-prompt.sh",
+        "cwd": ".",
+        "timeoutSec": 5,
+        "env": {
+          "TOKEN_LOGGER_API_URL": "http://localhost:3001"
+        }
+      }
+    ]
+  }
+}
