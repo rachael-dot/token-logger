@@ -50,6 +50,13 @@ try {
   // Column already exists, ignore
 }
 
+// Add platform column if it doesn't exist (migration for existing databases)
+try {
+  db.exec(`ALTER TABLE sessions ADD COLUMN platform TEXT DEFAULT 'claude'`);
+} catch (e) {
+  // Column already exists, ignore
+}
+
 db.exec(`
   CREATE TABLE IF NOT EXISTS entries (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -60,26 +67,34 @@ db.exec(`
     cache_read_tokens INTEGER DEFAULT 0,
     cache_creation_tokens INTEGER DEFAULT 0,
     total_tokens INTEGER DEFAULT 0,
+    duration_ms INTEGER DEFAULT 0,
     FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
   )
 `);
+
+// Add duration_ms column if it doesn't exist (migration for existing databases)
+try {
+  db.exec(`ALTER TABLE entries ADD COLUMN duration_ms INTEGER DEFAULT 0`);
+} catch (e) {
+  // Column already exists, ignore
+}
 
 // Enable foreign keys
 db.pragma('foreign_keys = ON');
 
 // Prepared statements
 const insertSession = db.prepare(`
-  INSERT OR IGNORE INTO sessions (id, created_at, last_activity, model, user)
-  VALUES (?, ?, ?, ?, ?)
+  INSERT OR IGNORE INTO sessions (id, created_at, last_activity, model, user, platform)
+  VALUES (?, ?, ?, ?, ?, ?)
 `);
 
 const updateSessionActivity = db.prepare(`
-  UPDATE sessions SET last_activity = ?, model = COALESCE(?, model), user = COALESCE(?, user) WHERE id = ?
+  UPDATE sessions SET last_activity = ?, model = COALESCE(?, model), user = COALESCE(?, user), platform = COALESCE(?, platform) WHERE id = ?
 `);
 
 const insertEntry = db.prepare(`
-  INSERT INTO entries (session_id, timestamp, input_tokens, output_tokens, cache_read_tokens, cache_creation_tokens, total_tokens)
-  VALUES (?, ?, ?, ?, ?, ?, ?)
+  INSERT INTO entries (session_id, timestamp, input_tokens, output_tokens, cache_read_tokens, cache_creation_tokens, total_tokens, duration_ms)
+  VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 `);
 
 const getSession = db.prepare(`
@@ -94,6 +109,10 @@ const getAllSessions = db.prepare(`
   SELECT * FROM sessions ORDER BY COALESCE(last_activity, created_at) DESC
 `);
 
+const getSessionsByPlatform = db.prepare(`
+  SELECT * FROM sessions WHERE platform = ? ORDER BY COALESCE(last_activity, created_at) DESC
+`);
+
 const getSessionTotals = db.prepare(`
   SELECT
     COALESCE(SUM(input_tokens), 0) as input_tokens,
@@ -101,6 +120,7 @@ const getSessionTotals = db.prepare(`
     COALESCE(SUM(cache_read_tokens), 0) as cache_read_tokens,
     COALESCE(SUM(cache_creation_tokens), 0) as cache_creation_tokens,
     COALESCE(SUM(total_tokens), 0) as total_tokens,
+    COALESCE(SUM(duration_ms), 0) as total_duration_ms,
     COUNT(*) as request_count
   FROM entries WHERE session_id = ?
 `);
@@ -146,8 +166,8 @@ app.use(express.json());
 // Serve static files from React build
 app.use(express.static(path.join(__dirname, '..', 'client', 'build')));
 
-// POST /api/tokens - Receive token data from hook
-app.post('/api/tokens', (req, res) => {
+// Generic handler for token data from hooks
+const handleTokenData = (req, res, platform) => {
   const {
     session_id,
     input_tokens,
@@ -156,7 +176,8 @@ app.post('/api/tokens', (req, res) => {
     cache_creation_tokens,
     model,
     user,
-    timestamp
+    timestamp,
+    duration_ms
   } = req.body;
 
   if (!session_id) {
@@ -170,14 +191,15 @@ app.post('/api/tokens', (req, res) => {
     output_tokens: output_tokens || 0,
     cache_read_tokens: cache_read_tokens || 0,
     cache_creation_tokens: cache_creation_tokens || 0,
-    total_tokens: (input_tokens || 0) + (output_tokens || 0)
+    total_tokens: (input_tokens || 0) + (output_tokens || 0),
+    duration_ms: duration_ms || 0
   };
 
   // Insert session if it doesn't exist
-  insertSession.run(session_id, ts, ts, model || null, user || null);
+  insertSession.run(session_id, ts, ts, model || null, user || null, platform);
 
-  // Update last activity, model, and user
-  updateSessionActivity.run(ts, model || null, user || null, session_id);
+  // Update last activity, model, user, and platform
+  updateSessionActivity.run(ts, model || null, user || null, platform, session_id);
 
   // Insert entry
   insertEntry.run(
@@ -187,15 +209,37 @@ app.post('/api/tokens', (req, res) => {
     entry.output_tokens,
     entry.cache_read_tokens,
     entry.cache_creation_tokens,
-    entry.total_tokens
+    entry.total_tokens,
+    entry.duration_ms
   );
 
   res.json({ success: true, entry });
+};
+
+// POST /api/claude/tokens - Receive token data from Claude Code hook
+app.post('/api/claude/tokens', (req, res) => {
+  console.log('Received Claude token data:', { session_id: req.body.session_id, timestamp: new Date().toISOString() });
+  handleTokenData(req, res, 'claude');
 });
 
-// GET /api/sessions - List all sessions
+// POST /api/copilot/tokens - Receive token data from GitHub Copilot hook
+app.post('/api/copilot/tokens', (req, res) => {
+  console.log('Received Copilot token data:', { session_id: req.body.session_id, timestamp: new Date().toISOString() });
+  handleTokenData(req, res, 'copilot');
+});
+
+// GET /api/sessions - List all sessions, optionally filtered by platform
 app.get('/api/sessions', (req, res) => {
-  const sessions = getAllSessions.all().map(session => {
+  const { platform } = req.query;
+
+  let sessions;
+  if (platform && (platform === 'claude' || platform === 'copilot')) {
+    sessions = getSessionsByPlatform.all(platform);
+  } else {
+    sessions = getAllSessions.all();
+  }
+
+  sessions = sessions.map(session => {
     const totals = getSessionTotals.get(session.id);
     return {
       id: session.id,
@@ -203,6 +247,7 @@ app.get('/api/sessions', (req, res) => {
       last_activity: session.last_activity,
       model: session.model,
       user: session.user,
+      platform: session.platform,
       tags: session.tags ? JSON.parse(session.tags) : [],
       totals
     };
@@ -250,9 +295,9 @@ app.get('/api/users', (req, res) => {
   res.json({ users: users.map(u => u.user) });
 });
 
-// GET /api/stats - Get overall statistics with optional date and user filtering
+// GET /api/stats - Get overall statistics with optional date, user, and platform filtering
 app.get('/api/stats', (req, res) => {
-  const { startDate, endDate, user } = req.query;
+  const { startDate, endDate, user, platform } = req.query;
 
   let stats;
   let sessionCount;
@@ -271,8 +316,13 @@ app.get('/api/stats', (req, res) => {
     params.push(user);
   }
 
+  if (platform && (platform === 'claude' || platform === 'copilot')) {
+    whereClauses.push('s.platform = ?');
+    params.push(platform);
+  }
+
   if (whereClauses.length > 0) {
-    // Filter by date range and/or user
+    // Filter by date range, user, and/or platform
     const whereClause = whereClauses.join(' AND ');
     const filteredStats = db.prepare(`
       SELECT
@@ -320,9 +370,9 @@ app.patch('/api/sessions/:sessionId/notes', [
   const { sessionId } = req.params;
   let { notes } = req.body;
 
-  // Validate sessionId format (basic UUID validation)
-  const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-  if (!uuidRegex.test(sessionId)) {
+  // Validate sessionId format (UUID for Claude, timestamp-based for Copilot/others)
+  const validIdRegex = /^([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|[a-zA-Z0-9_-]+)$/i;
+  if (!validIdRegex.test(sessionId)) {
     return res.status(400).json({ error: 'Invalid session ID format' });
   }
 
@@ -386,9 +436,9 @@ app.patch('/api/sessions/:sessionId/tags', [
   const { sessionId } = req.params;
   let { tags } = req.body;
 
-  // Validate sessionId format (basic UUID validation)
-  const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-  if (!uuidRegex.test(sessionId)) {
+  // Validate sessionId format (UUID for Claude, timestamp-based for Copilot/others)
+  const validIdRegex = /^([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|[a-zA-Z0-9_-]+)$/i;
+  if (!validIdRegex.test(sessionId)) {
     return res.status(400).json({ error: 'Invalid session ID format' });
   }
 

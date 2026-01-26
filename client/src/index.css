@@ -430,6 +430,11 @@ button:hover {
   font-weight: 600;
 }
 
+.session-tokens .duration {
+  color: #a78bfa;
+  font-weight: 600;
+}
+
 .session-tokens .cost {
   color: #4ade80;
   font-weight: 600;
@@ -465,6 +470,37 @@ button:hover {
   color: #64748b;
   word-break: break-all;
   margin-bottom: 0.5rem;
+}
+
+.session-duration-stats {
+  display: flex;
+  gap: 2rem;
+  background: #0f172a;
+  border-radius: 0.5rem;
+  padding: 1rem;
+  margin: 1rem 0;
+  border: 1px solid #334155;
+  flex-wrap: wrap;
+}
+
+.duration-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.duration-label {
+  font-size: 0.75rem;
+  color: #94a3b8;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-weight: 500;
+}
+
+.duration-value {
+  font-size: 1.25rem;
+  color: #a78bfa;
+  font-weight: 700;
 }
 
 .chart-container {
@@ -580,6 +616,11 @@ td.total, .session-tokens .total {
 
 td.cost {
   color: #4ade80;
+}
+
+td.duration {
+  color: #a78bfa;
+  font-weight: 500;
 }
 
 tfoot td {

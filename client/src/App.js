@@ -75,7 +75,7 @@ function App() {
   const [editingTags, setEditingTags] = useState(false);
   const [tagInput, setTagInput] = useState('');
   const [sessionTags, setSessionTags] = useState([]);
-  const [viewMode, setViewMode] = useState('claude-cli');
+  const [viewMode, setViewMode] = useState('claude');
   const [dropdownOpen, setDropdownOpen] = useState(false);
 
   // Helper function to calculate date range based on timeframe
@@ -162,13 +162,27 @@ function App() {
         params.append('user', selectedUser);
       }
 
+      // Add platform filter based on viewMode
+      if (viewMode === 'claude' || viewMode === 'copilot') {
+        params.append('platform', viewMode);
+      }
+
       const statsUrl = params.toString()
         ? `${API_BASE}/stats?${params.toString()}`
         : `${API_BASE}/stats`;
 
+      const sessionsParams = new URLSearchParams();
+      if (viewMode === 'claude' || viewMode === 'copilot') {
+        sessionsParams.append('platform', viewMode);
+      }
+
+      const sessionsUrl = sessionsParams.toString()
+        ? `${API_BASE}/sessions?${sessionsParams.toString()}`
+        : `${API_BASE}/sessions`;
+
       const [statsRes, sessionsRes] = await Promise.all([
         fetch(statsUrl),
-        fetch(`${API_BASE}/sessions`)
+        fetch(sessionsUrl)
       ]);
 
       if (!statsRes.ok || !sessionsRes.ok) {
@@ -185,7 +199,7 @@ function App() {
     } finally {
       setLoading(false);
     }
-  }, [getDateRange, selectedUser]);
+  }, [getDateRange, selectedUser, viewMode]);
 
   useEffect(() => {
     fetchUsers();
@@ -327,6 +341,12 @@ function App() {
     return `$${cost.toFixed(2)}`;
   };
 
+  const formatDuration = (ms) => {
+    if (!ms || ms === 0) return '-';
+    if (ms < 1000) return `${ms}ms`;
+    return `${(ms / 1000).toFixed(2)}s`;
+  };
+
   const truncateId = (id) => {
     if (!id) return 'N/A';
     return id.length > 12 ? `${id.slice(0, 6)}...${id.slice(-6)}` : id;
@@ -426,20 +446,29 @@ function App() {
               onClick={() => setDropdownOpen(!dropdownOpen)}
             >
               <span className="dropdown-label">
-                {viewMode === 'claude-cli' ? 'Claude CLI' : viewMode === 'openhands' ? 'OpenHands' : 'Devin'}
+                {viewMode === 'claude' ? 'Claude' : viewMode === 'copilot' ? 'Copilot' : viewMode === 'openhands' ? 'OpenHands' : 'Devin'}
               </span>
               <span className="dropdown-arrow">{dropdownOpen ? '▲' : '▼'}</span>
             </button>
             {dropdownOpen && (
               <div className="dropdown-menu">
                 <button
-                  className={`dropdown-item ${viewMode === 'claude-cli' ? 'active' : ''}`}
+                  className={`dropdown-item ${viewMode === 'claude' ? 'active' : ''}`}
                   onClick={() => {
-                    setViewMode('claude-cli');
+                    setViewMode('claude');
                     setDropdownOpen(false);
                   }}
                 >
-                  Claude CLI
+                  Claude
+                </button>
+                <button
+                  className={`dropdown-item ${viewMode === 'copilot' ? 'active' : ''}`}
+                  onClick={() => {
+                    setViewMode('copilot');
+                    setDropdownOpen(false);
+                  }}
+                >
+                  Copilot
                 </button>
                 <button
                   className={`dropdown-item ${viewMode === 'openhands' ? 'active' : ''}`}
@@ -465,7 +494,7 @@ function App() {
         </div>
       </header>
 
-      {viewMode === 'claude-cli' && stats && (
+      {(viewMode === 'claude' || viewMode === 'copilot') && stats && (
         <section className="stats-section">
           <div className="stats-header">
             <h2>Usage Statistics</h2>
@@ -539,14 +568,23 @@ function App() {
               <h3>Output Tokens</h3>
               <p className="stat-value">{formatNumber(stats.total_output_tokens)}</p>
             </div>
-            <div className="stat-card">
-              <h3>Cache Read</h3>
-              <p className="stat-value">{formatNumber(stats.total_cache_read_tokens)}</p>
-            </div>
-            <div className="stat-card">
-              <h3>Cache Write</h3>
-              <p className="stat-value">{formatNumber(stats.total_cache_creation_tokens)}</p>
-            </div>
+            {viewMode === 'claude' ? (
+              <>
+                <div className="stat-card">
+                  <h3>Cache Read</h3>
+                  <p className="stat-value">{formatNumber(stats.total_cache_read_tokens)}</p>
+                </div>
+                <div className="stat-card">
+                  <h3>Cache Write</h3>
+                  <p className="stat-value">{formatNumber(stats.total_cache_creation_tokens)}</p>
+                </div>
+              </>
+            ) : (
+              <div className="stat-card">
+                <h3>Cache Tokens</h3>
+                <p className="stat-value">{formatNumber((stats.total_cache_read_tokens || 0) + (stats.total_cache_creation_tokens || 0))}</p>
+              </div>
+            )}
           </div>
           <div className="stats-summary">
             <div className="stat-card highlight">
@@ -566,7 +604,7 @@ function App() {
         </section>
       )}
 
-      {viewMode === 'claude-cli' && (
+      {(viewMode === 'claude' || viewMode === 'copilot') && (
         <section className="sessions-section">
         <div className="sessions-header">
           <h2>Sessions</h2>
@@ -650,7 +688,11 @@ function App() {
                 <div className="session-tokens">
                   <span>In: {formatNumber(session.totals.input_tokens)}</span>
                   <span>Out: {formatNumber(session.totals.output_tokens)}</span>
+                  {viewMode === 'copilot' && (
+                    <span>Cache: {formatNumber((session.totals.cache_read_tokens || 0) + (session.totals.cache_creation_tokens || 0))}</span>
+                  )}
                   <span className="total">Total: {formatNumber(session.totals.total_tokens)}</span>
+                  <span className="duration">Duration: {formatDuration(session.totals.total_duration_ms)}</span>
                   <span className="cost">Cost: {formatCost(calculateCost(
                     session.totals.input_tokens,
                     session.totals.output_tokens,
@@ -668,7 +710,7 @@ function App() {
       </section>
       )}
 
-      {viewMode === 'claude-cli' && selectedSession && (
+      {(viewMode === 'claude' || viewMode === 'copilot') && selectedSession && (
         <section className="session-details">
           <div className="details-header">
             <h2>Session Details</h2>
@@ -678,6 +720,21 @@ function App() {
           {selectedSession.user && <p className="session-user-detail">User: {selectedSession.user}</p>}
           {selectedSession.model && <p className="session-model-detail">Model: {selectedSession.model}</p>}
           <p>Created: {formatDate(selectedSession.created_at)}</p>
+
+          <div className="session-duration-stats">
+            <div className="duration-stat">
+              <span className="duration-label">Total Duration:</span>
+              <span className="duration-value">{formatDuration(selectedSession.totals.total_duration_ms)}</span>
+            </div>
+            <div className="duration-stat">
+              <span className="duration-label">Avg per Request:</span>
+              <span className="duration-value">{formatDuration(selectedSession.totals.request_count > 0 ? selectedSession.totals.total_duration_ms / selectedSession.totals.request_count : 0)}</span>
+            </div>
+            <div className="duration-stat">
+              <span className="duration-label">Requests:</span>
+              <span className="duration-value">{selectedSession.totals.request_count}</span>
+            </div>
+          </div>
 
           <div className="session-notes">
             <div className="notes-header">
@@ -794,6 +851,7 @@ function App() {
                 <tr>
                   <th>#</th>
                   <th>Time</th>
+                  <th>Duration</th>
                   <th>Input</th>
                   <th>Output</th>
                   <th>Cache Read</th>
@@ -807,6 +865,7 @@ function App() {
                   <tr key={idx}>
                     <td>{idx + 1}</td>
                     <td>{formatDate(entry.timestamp)}</td>
+                    <td className="duration">{formatDuration(entry.duration_ms)}</td>
                     <td>{formatNumber(entry.input_tokens)}</td>
                     <td>{formatNumber(entry.output_tokens)}</td>
                     <td>{formatNumber(entry.cache_read_tokens)}</td>
@@ -824,6 +883,7 @@ function App() {
               <tfoot>
                 <tr>
                   <td colSpan="2"><strong>Session Total</strong></td>
+                  <td><strong>-</strong></td>
                   <td><strong>{formatNumber(selectedSession.totals.input_tokens)}</strong></td>
                   <td><strong>{formatNumber(selectedSession.totals.output_tokens)}</strong></td>
                   <td><strong>{formatNumber(selectedSession.totals.cache_read_tokens)}</strong></td>
