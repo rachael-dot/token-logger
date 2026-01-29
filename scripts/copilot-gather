@@ -17,16 +17,17 @@ get_input_price() {
             echo "3.00"
             ;;
         claude-opus-4.5|claude-opus-4-20250514)
-            echo "15.00"
+            echo "5.00"
             ;;
-        claude-haiku-4.0)
-            echo "0.80"
+        claude-haiku-4.5)
+            echo "1.00"
             ;;
         *)
             echo "0"
             ;;
     esac
 }
+
 
 get_output_price() {
     local model="$1"
@@ -35,10 +36,28 @@ get_output_price() {
             echo "15.00"
             ;;
         claude-opus-4.5|claude-opus-4-20250514)
-            echo "75.00"
+            echo "25.00"
             ;;
-        claude-haiku-4.0)
-            echo "4.00"
+        claude-haiku-4.5)
+            echo "5.00"
+            ;;
+        *)
+            echo "0"
+            ;;
+    esac
+}
+
+get_cache_write_price() {
+    local model="$1"
+    case "$model" in
+        claude-sonnet-4.5|claude-sonnet-4-20250514)
+            echo "3.75"
+            ;;
+        claude-opus-4.5|claude-opus-4-20250514)
+            echo "10.00"
+            ;;
+        claude-haiku-4.5)
+            echo "2.00"
             ;;
         *)
             echo "0"
@@ -109,16 +128,19 @@ if echo "$OUTPUT" | grep -q "Breakdown by AI model:"; then
 
     TOTAL_TOKENS=$((input_tokens + output_tokens))
 
+    # Subtract cache write tokens from input tokens since copilot includes them in the input total
+    input_tokens=$((input_tokens - cache_write_tokens))
+
     # Calculate costs using functions (bash 3.2 compatible)
     input_cost_per_m=$(get_input_price "$model")
     output_cost_per_m=$(get_output_price "$model")
+    cache_write_cost_per_m=$(get_cache_write_price "$model")
 
     # Ensure defaults
     input_cost_per_m="${input_cost_per_m:-0}"
     output_cost_per_m="${output_cost_per_m:-0}"
+    cache_write_cost_per_m="${cache_write_cost_per_m:-0}"
 
-    # Cache pricing: cache writes are charged at standard input cost
-    cache_write_cost_per_m="$input_cost_per_m"
 
     # Calculate individual costs
     input_cost=$(echo "scale=4; ($input_tokens / 1000000) * $input_cost_per_m" | bc 2>/dev/null || echo "0")
@@ -165,7 +187,6 @@ Token Usage:
   Input Tokens:          ${input_tokens} (\$${input_cost})
   Output Tokens:         ${output_tokens} (\$${output_cost})
   Cache Write Tokens:    ${cache_write_tokens} (\$${cache_write_cost})
-  Total Tokens:          ${TOTAL_TOKENS}
 
 Total Cost: \$${total_cost}
 

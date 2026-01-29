@@ -12,8 +12,8 @@ function Get-InputPrice {
 
     switch -Regex ($model) {
         "claude-sonnet-4.5|claude-sonnet-4-20250514" { return 3.00 }
-        "claude-opus-4.5|claude-opus-4-20250514" { return 15.00 }
-        "claude-haiku-4.0" { return 0.80 }
+        "claude-opus-4.5|claude-opus-4-20250514" { return 5.00 }
+        "claude-haiku-4.5" { return 1.00 }
         default { return 0 }
     }
 }
@@ -23,8 +23,19 @@ function Get-OutputPrice {
 
     switch -Regex ($model) {
         "claude-sonnet-4.5|claude-sonnet-4-20250514" { return 15.00 }
-        "claude-opus-4.5|claude-opus-4-20250514" { return 75.00 }
-        "claude-haiku-4.0" { return 4.00 }
+        "claude-opus-4.5|claude-opus-4-20250514" { return 25.00 }
+        "claude-haiku-4.5" { return 5.00 }
+        default { return 0 }
+    }
+}
+
+function Get-CacheWritePrice {
+    param([string]$model)
+
+    switch -Regex ($model) {
+        "claude-sonnet-4.5|claude-sonnet-4-20250514" { return 3.75 }
+        "claude-opus-4.5|claude-opus-4-20250514" { return 10.00 }
+        "claude-haiku-4.5" { return 2.00 }
         default { return 0 }
     }
 }
@@ -122,14 +133,18 @@ if ($OUTPUT -match "Breakdown by AI model:") {
     $output_tokens = Convert-KNotation $output_tokens
     $cache_write_tokens = Convert-KNotation $cache_write_tokens
 
+    # Save the total input tokens before subtracting cache write tokens
+    $total_input_tokens = $input_tokens
+
+    # Subtract cache write tokens from input tokens since copilot includes them in the input total
+    $input_tokens = $input_tokens - $cache_write_tokens
+
     $TOTAL_TOKENS = $input_tokens + $output_tokens
 
     # Calculate costs
     $input_cost_per_m = Get-InputPrice $model
     $output_cost_per_m = Get-OutputPrice $model
-
-    # Cache pricing: cache writes are charged at standard input cost
-    $cache_write_cost_per_m = $input_cost_per_m
+    $cache_write_cost_per_m = Get-CacheWritePrice $model
 
     # Calculate individual costs
     $input_cost = ($input_tokens / 1000000) * $input_cost_per_m
@@ -175,6 +190,7 @@ Token Usage:
   Output Tokens:         $output_tokens (`$$output_cost_str)
   Cache Write Tokens:    $cache_write_tokens (`$$cache_write_cost_str)
   Total Tokens:          $TOTAL_TOKENS
+  Total Input Tokens:    $total_input_tokens
 
 Total Cost: `$$total_cost_str
 
