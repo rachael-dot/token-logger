@@ -624,121 +624,6 @@ function App() {
         </section>
       )}
 
-      {(viewMode === 'claude' || viewMode === 'copilot') && (
-        <section className="sessions-section">
-        <div className="sessions-header">
-          <h2>Sessions</h2>
-          <div className="sort-controls">
-            <label>
-              Sort by:
-              <select
-                value={sortBy}
-                onChange={(e) => setSortBy(e.target.value)}
-                className="sort-select"
-              >
-                <option value="recent">Most Recent</option>
-                <option value="cost-high">Highest Cost</option>
-                <option value="cost-low">Lowest Cost</option>
-                <option value="tokens-high">Most Tokens</option>
-                <option value="tokens-low">Least Tokens</option>
-                <option value="requests-high">Most Requests</option>
-                <option value="requests-low">Least Requests</option>
-              </select>
-            </label>
-          </div>
-        </div>
-        {tags.length > 0 && (
-          <div className="tag-filter-row">
-            <div className="tag-filter">
-              <div className="tag-filter-chips">
-                {tags.map(tag => (
-                  <button
-                    key={tag}
-                    onClick={() => {
-                      if (selectedTags.includes(tag)) {
-                        setSelectedTags(selectedTags.filter(t => t !== tag));
-                      } else {
-                        setSelectedTags([...selectedTags, tag]);
-                      }
-                    }}
-                    className={`tag-filter-chip ${selectedTags.includes(tag) ? 'active' : ''}`}
-                  >
-                    {tag}
-                  </button>
-                ))}
-              </div>
-              {selectedTags.length > 0 && (
-                <button
-                  onClick={() => setSelectedTags([])}
-                  className="clear-tags-btn"
-                >
-                  Clear tag filters
-                </button>
-              )}
-            </div>
-          </div>
-        )}
-        {sessions.length === 0 ? (
-          <p className="empty-state">No sessions recorded yet. Start using Claude Code with the token logger hook enabled.</p>
-        ) : (
-          <div className="sessions-list">
-            {getSortedSessions(getFilteredSessions(sessions)).map((session) => (
-              <div
-                key={session.id}
-                className={`session-card ${selectedSession?.id === session.id ? 'selected' : ''}`}
-                onClick={() => fetchSessionDetails(session.id)}
-              >
-                <div className="session-header">
-                  <span className="session-id" title={session.id}>{truncateId(session.id)}</span>
-                  <div className="session-meta">
-                    {session.user && <span className="session-user">{session.user}</span>}
-                    {session.model && <span className="session-model">{session.model}</span>}
-                    <span className="session-requests">{session.totals.request_count} requests</span>
-                  </div>
-                </div>
-                {session.tags && session.tags.length > 0 && (
-                  <div className="session-tags">
-                    <div className="tag-list">
-                      {session.tags.map(tag => (
-                        <span key={tag} className="tag-badge">{tag}</span>
-                      ))}
-                    </div>
-                  </div>
-                )}
-                <div className="session-tokens">
-                  <span>In: {formatNumber(session.totals.input_tokens)}</span>
-                  <span>Out: {formatNumber(session.totals.output_tokens)}</span>
-                  {viewMode === 'copilot' && (
-                    <>
-                      <span>Cache: {formatNumber(session.totals.cache_write_tokens || 0)}</span>
-                      {session.totals.total_premium_requests > 0 && (
-                        <span>Premium: {formatNumber(session.totals.total_premium_requests)}</span>
-                      )}
-                    </>
-                  )}
-                  <span className="total">Total: {formatNumber(session.totals.total_tokens)}</span>
-                  <span className="duration">Duration: {formatDuration(session.totals.total_duration_ms)}</span>
-                  <span className="cost">Cost: {formatCost(
-                    (viewMode === 'copilot' && session.totals.total_cost > 0) 
-                      ? session.totals.total_cost 
-                      : calculateCost(
-                          session.totals.input_tokens,
-                          session.totals.output_tokens,
-                          session.totals.cache_read_tokens,
-                          session.totals.cache_creation_tokens
-                        )
-                  )}</span>
-                </div>
-                <div className="session-time">
-                  Last activity: {formatDate(session.last_activity)}
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </section>
-      )}
-
       {(viewMode === 'claude' || viewMode === 'copilot') && selectedSession && (
         <section className="session-details">
           <div className="details-header">
@@ -964,6 +849,121 @@ function App() {
             </table>
           </div>
         </section>
+      )}
+
+      {(viewMode === 'claude' || viewMode === 'copilot') && (
+        <section className="sessions-section">
+        <div className="sessions-header">
+          <h2>Sessions</h2>
+          <div className="sort-controls">
+            <label>
+              Sort by:
+              <select
+                value={sortBy}
+                onChange={(e) => setSortBy(e.target.value)}
+                className="sort-select"
+              >
+                <option value="recent">Most Recent</option>
+                <option value="cost-high">Highest Cost</option>
+                <option value="cost-low">Lowest Cost</option>
+                <option value="tokens-high">Most Tokens</option>
+                <option value="tokens-low">Least Tokens</option>
+                <option value="requests-high">Most Requests</option>
+                <option value="requests-low">Least Requests</option>
+              </select>
+            </label>
+          </div>
+        </div>
+        {tags.length > 0 && (
+          <div className="tag-filter-row">
+            <div className="tag-filter">
+              <div className="tag-filter-chips">
+                {tags.map(tag => (
+                  <button
+                    key={tag}
+                    onClick={() => {
+                      if (selectedTags.includes(tag)) {
+                        setSelectedTags(selectedTags.filter(t => t !== tag));
+                      } else {
+                        setSelectedTags([...selectedTags, tag]);
+                      }
+                    }}
+                    className={`tag-filter-chip ${selectedTags.includes(tag) ? 'active' : ''}`}
+                  >
+                    {tag}
+                  </button>
+                ))}
+              </div>
+              {selectedTags.length > 0 && (
+                <button
+                  onClick={() => setSelectedTags([])}
+                  className="clear-tags-btn"
+                >
+                  Clear tag filters
+                </button>
+              )}
+            </div>
+          </div>
+        )}
+        {sessions.length === 0 ? (
+          <p className="empty-state">No sessions recorded yet. Start using Claude Code with the token logger hook enabled.</p>
+        ) : (
+          <div className="sessions-list">
+            {getSortedSessions(getFilteredSessions(sessions)).map((session) => (
+              <div
+                key={session.id}
+                className={`session-card ${selectedSession?.id === session.id ? 'selected' : ''}`}
+                onClick={() => fetchSessionDetails(session.id)}
+              >
+                <div className="session-header">
+                  <span className="session-id" title={session.id}>{truncateId(session.id)}</span>
+                  <div className="session-meta">
+                    {session.user && <span className="session-user">{session.user}</span>}
+                    {session.model && <span className="session-model">{session.model}</span>}
+                    <span className="session-requests">{session.totals.request_count} requests</span>
+                  </div>
+                </div>
+                {session.tags && session.tags.length > 0 && (
+                  <div className="session-tags">
+                    <div className="tag-list">
+                      {session.tags.map(tag => (
+                        <span key={tag} className="tag-badge">{tag}</span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                <div className="session-tokens">
+                  <span>In: {formatNumber(session.totals.input_tokens)}</span>
+                  <span>Out: {formatNumber(session.totals.output_tokens)}</span>
+                  {viewMode === 'copilot' && (
+                    <>
+                      <span>Cache: {formatNumber(session.totals.cache_write_tokens || 0)}</span>
+                      {session.totals.total_premium_requests > 0 && (
+                        <span>Premium: {formatNumber(session.totals.total_premium_requests)}</span>
+                      )}
+                    </>
+                  )}
+                  <span className="total">Total: {formatNumber(session.totals.total_tokens)}</span>
+                  <span className="duration">Duration: {formatDuration(session.totals.total_duration_ms)}</span>
+                  <span className="cost">Cost: {formatCost(
+                    (viewMode === 'copilot' && session.totals.total_cost > 0) 
+                      ? session.totals.total_cost 
+                      : calculateCost(
+                          session.totals.input_tokens,
+                          session.totals.output_tokens,
+                          session.totals.cache_read_tokens,
+                          session.totals.cache_creation_tokens
+                        )
+                  )}</span>
+                </div>
+                <div className="session-time">
+                  Last activity: {formatDate(session.last_activity)}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
       )}
 
       {viewMode === 'openhands' && (
