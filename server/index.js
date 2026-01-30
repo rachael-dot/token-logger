@@ -66,8 +66,14 @@ db.exec(`
     output_tokens INTEGER DEFAULT 0,
     cache_read_tokens INTEGER DEFAULT 0,
     cache_creation_tokens INTEGER DEFAULT 0,
+    cache_write_tokens INTEGER DEFAULT 0,
     total_tokens INTEGER DEFAULT 0,
     duration_ms INTEGER DEFAULT 0,
+    premium_requests INTEGER DEFAULT 0,
+    input_cost REAL DEFAULT 0,
+    output_cost REAL DEFAULT 0,
+    cache_write_cost REAL DEFAULT 0,
+    total_cost REAL DEFAULT 0,
     FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
   )
 `);
@@ -75,6 +81,43 @@ db.exec(`
 // Add duration_ms column if it doesn't exist (migration for existing databases)
 try {
   db.exec(`ALTER TABLE entries ADD COLUMN duration_ms INTEGER DEFAULT 0`);
+} catch (e) {
+  // Column already exists, ignore
+}
+
+// Add new columns for copilot-with-logging enhancement
+try {
+  db.exec(`ALTER TABLE entries ADD COLUMN cache_write_tokens INTEGER DEFAULT 0`);
+} catch (e) {
+  // Column already exists, ignore
+}
+
+try {
+  db.exec(`ALTER TABLE entries ADD COLUMN premium_requests INTEGER DEFAULT 0`);
+} catch (e) {
+  // Column already exists, ignore
+}
+
+try {
+  db.exec(`ALTER TABLE entries ADD COLUMN input_cost REAL DEFAULT 0`);
+} catch (e) {
+  // Column already exists, ignore
+}
+
+try {
+  db.exec(`ALTER TABLE entries ADD COLUMN output_cost REAL DEFAULT 0`);
+} catch (e) {
+  // Column already exists, ignore
+}
+
+try {
+  db.exec(`ALTER TABLE entries ADD COLUMN cache_write_cost REAL DEFAULT 0`);
+} catch (e) {
+  // Column already exists, ignore
+}
+
+try {
+  db.exec(`ALTER TABLE entries ADD COLUMN total_cost REAL DEFAULT 0`);
 } catch (e) {
   // Column already exists, ignore
 }
@@ -93,8 +136,8 @@ const updateSessionActivity = db.prepare(`
 `);
 
 const insertEntry = db.prepare(`
-  INSERT INTO entries (session_id, timestamp, input_tokens, output_tokens, cache_read_tokens, cache_creation_tokens, total_tokens, duration_ms)
-  VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+  INSERT INTO entries (session_id, timestamp, input_tokens, output_tokens, cache_read_tokens, cache_creation_tokens, cache_write_tokens, total_tokens, duration_ms, premium_requests, input_cost, output_cost, cache_write_cost, total_cost)
+  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `);
 
 const getSession = db.prepare(`
@@ -119,8 +162,14 @@ const getSessionTotals = db.prepare(`
     COALESCE(SUM(output_tokens), 0) as output_tokens,
     COALESCE(SUM(cache_read_tokens), 0) as cache_read_tokens,
     COALESCE(SUM(cache_creation_tokens), 0) as cache_creation_tokens,
+    COALESCE(SUM(cache_write_tokens), 0) as cache_write_tokens,
     COALESCE(SUM(total_tokens), 0) as total_tokens,
     COALESCE(SUM(duration_ms), 0) as total_duration_ms,
+    COALESCE(SUM(premium_requests), 0) as total_premium_requests,
+    COALESCE(SUM(input_cost), 0) as total_input_cost,
+    COALESCE(SUM(output_cost), 0) as total_output_cost,
+    COALESCE(SUM(cache_write_cost), 0) as total_cache_write_cost,
+    COALESCE(SUM(total_cost), 0) as total_cost,
     COUNT(*) as request_count
   FROM entries WHERE session_id = ?
 `);
@@ -141,7 +190,13 @@ const getOverallStats = db.prepare(`
     COALESCE(SUM(output_tokens), 0) as total_output_tokens,
     COALESCE(SUM(cache_read_tokens), 0) as total_cache_read_tokens,
     COALESCE(SUM(cache_creation_tokens), 0) as total_cache_creation_tokens,
-    COALESCE(SUM(total_tokens), 0) as total_tokens
+    COALESCE(SUM(cache_write_tokens), 0) as total_cache_write_tokens,
+    COALESCE(SUM(total_tokens), 0) as total_tokens,
+    COALESCE(SUM(premium_requests), 0) as total_premium_requests,
+    COALESCE(SUM(input_cost), 0) as total_input_cost,
+    COALESCE(SUM(output_cost), 0) as total_output_cost,
+    COALESCE(SUM(cache_write_cost), 0) as total_cache_write_cost,
+    COALESCE(SUM(total_cost), 0) as total_cost
   FROM entries
 `);
 
@@ -174,10 +229,16 @@ const handleTokenData = (req, res, platform) => {
     output_tokens,
     cache_read_tokens,
     cache_creation_tokens,
+    cache_write_tokens,
     model,
     user,
     timestamp,
-    duration_ms
+    duration_ms,
+    premium_requests,
+    input_cost,
+    output_cost,
+    cache_write_cost,
+    total_cost
   } = req.body;
 
   if (!session_id) {
@@ -191,8 +252,14 @@ const handleTokenData = (req, res, platform) => {
     output_tokens: output_tokens || 0,
     cache_read_tokens: cache_read_tokens || 0,
     cache_creation_tokens: cache_creation_tokens || 0,
+    cache_write_tokens: cache_write_tokens || 0,
     total_tokens: (input_tokens || 0) + (output_tokens || 0),
-    duration_ms: duration_ms || 0
+    duration_ms: duration_ms || 0,
+    premium_requests: premium_requests || 0,
+    input_cost: input_cost || 0,
+    output_cost: output_cost || 0,
+    cache_write_cost: cache_write_cost || 0,
+    total_cost: total_cost || 0
   };
 
   // Insert session if it doesn't exist
@@ -209,8 +276,14 @@ const handleTokenData = (req, res, platform) => {
     entry.output_tokens,
     entry.cache_read_tokens,
     entry.cache_creation_tokens,
+    entry.cache_write_tokens,
     entry.total_tokens,
-    entry.duration_ms
+    entry.duration_ms,
+    entry.premium_requests,
+    entry.input_cost,
+    entry.output_cost,
+    entry.cache_write_cost,
+    entry.total_cost
   );
 
   res.json({ success: true, entry });
@@ -332,7 +405,13 @@ app.get('/api/stats', (req, res) => {
         COALESCE(SUM(e.output_tokens), 0) as total_output_tokens,
         COALESCE(SUM(e.cache_read_tokens), 0) as total_cache_read_tokens,
         COALESCE(SUM(e.cache_creation_tokens), 0) as total_cache_creation_tokens,
-        COALESCE(SUM(e.total_tokens), 0) as total_tokens
+        COALESCE(SUM(e.cache_write_tokens), 0) as total_cache_write_tokens,
+        COALESCE(SUM(e.total_tokens), 0) as total_tokens,
+        COALESCE(SUM(e.premium_requests), 0) as total_premium_requests,
+        COALESCE(SUM(e.input_cost), 0) as total_input_cost,
+        COALESCE(SUM(e.output_cost), 0) as total_output_cost,
+        COALESCE(SUM(e.cache_write_cost), 0) as total_cache_write_cost,
+        COALESCE(SUM(e.total_cost), 0) as total_cost
       FROM entries e
       JOIN sessions s ON e.session_id = s.id
       WHERE ${whereClause}

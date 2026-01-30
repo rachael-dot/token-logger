@@ -1,18 +1,78 @@
 #!/bin/bash
 
-# Wrapper script for copilot CLI that logs token usage
+# Wrapper script for copilot CLI that logs token usage and sends to API
 # Usage: ./copilot-with-logging [copilot options]
 # Or create an alias: alias copilot="path/to/copilot-with-logging"
 
 # Configuration
 API_URL="${TOKEN_LOGGER_API_URL:-http://localhost:3001}"
-LOGS_DIR="./logs"
-mkdir -p "$LOGS_DIR"
+LOGS_BASE_DIR="./logs"
 COPILOT_BIN="/opt/homebrew/bin/copilot"
 
-# Generate session info
-SESSION_ID="copilot_$(date +%s)"
+# Pricing per 1M tokens (updated January 2026)
+# Functions for bash 3.2 compatibility (no associative arrays)
+get_input_price() {
+    local model="$1"
+    case "$model" in
+        claude-sonnet-4.5|claude-sonnet-4-20250514)
+            echo "3.00"
+            ;;
+        claude-opus-4.5|claude-opus-4-20250514)
+            echo "5.00"
+            ;;
+        claude-haiku-4.5)
+            echo "1.00"
+            ;;
+        *)
+            echo "0"
+            ;;
+    esac
+}
+
+
+get_output_price() {
+    local model="$1"
+    case "$model" in
+        claude-sonnet-4.5|claude-sonnet-4-20250514)
+            echo "15.00"
+            ;;
+        claude-opus-4.5|claude-opus-4-20250514)
+            echo "25.00"
+            ;;
+        claude-haiku-4.5)
+            echo "5.00"
+            ;;
+        *)
+            echo "0"
+            ;;
+    esac
+}
+
+get_cache_write_price() {
+    local model="$1"
+    case "$model" in
+        claude-sonnet-4.5|claude-sonnet-4-20250514)
+            echo "3.75"
+            ;;
+        claude-opus-4.5|claude-opus-4-20250514)
+            echo "10.00"
+            ;;
+        claude-haiku-4.5)
+            echo "2.00"
+            ;;
+        *)
+            echo "0"
+            ;;
+    esac
+}
+
+
+# Generate session info with timestamped folder
 TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+RUN_FOLDER="copilot-$(date +"%Y-%m-%d-%H%M%S")"
+LOGS_DIR="$LOGS_BASE_DIR/$RUN_FOLDER"
+mkdir -p "$LOGS_DIR"
+SESSION_ID="copilot_$(date +%s)"
 
 # Run the actual copilot command and capture both output and exit code
 START_TIME=$(date +%s)
@@ -24,23 +84,33 @@ DURATION=$((END_TIME - START_TIME))
 # Display the output
 echo "$OUTPUT"
 
+# Save output to run.log
+echo "$OUTPUT" > "$LOGS_DIR/run.log"
+
 # Parse token information from output if it contains usage stats
 # Format: claude-sonnet-4.5  35.2k in, 310 out, 22.4k cached
 if echo "$OUTPUT" | grep -q "Breakdown by AI model:"; then
     model=$(echo "$OUTPUT" | grep -o 'claude-[a-z0-9.-]*' | head -1)
-    input_tokens=$(echo "$OUTPUT" | grep -oE '[0-9.]+k? (in|input)' | sed -E 's/ (in|input)//' | head -1)
-    output_tokens=$(echo "$OUTPUT" | grep -oE '[0-9.]+k? (out|output)' | sed -E 's/ (out|output)//' | head -1)
-    cache_read_tokens=$(echo "$OUTPUT" | grep -oE '[0-9.]+k? (cached|cache read)' | sed -E 's/ (cached|cache read)//' | head -1)
-    cache_creation_tokens=$(echo "$OUTPUT" | grep -oE '[0-9.]+k? cache creation' | sed 's/ cache creation//' | head -1)
+    # Parse token counts from copilot output
+    input_tokens=$(echo "$OUTPUT" | grep -oE '[0-9.,]+[km]?\s+(in|input)' | sed -E 's/[[:space:]]+(in|input)//' | sed 's/,//g' | head -1)
+    output_tokens=$(echo "$OUTPUT" | grep -oE '[0-9.,]+[km]?\s+(out|output)' | sed -E 's/[[:space:]]+(out|output)//' | sed 's/,//g' | head -1)
+    # Copilot shows "cached" tokens which are cache WRITE tokens
+    cache_write_tokens=$(echo "$OUTPUT" | grep -oE '[0-9.,]+[km]?\s+cached' | sed -E 's/[[:space:]]+cached//' | sed 's/,//g' | head -1)
 
-    # Convert k notation to actual numbers
+    # Parse premium requests (format: "Total usage est:        3 Premium requests")
+    premium_used=$(echo "$OUTPUT" | grep -i "premium request" | grep -oE '[0-9]+\s+Premium requests?' | grep -oE '[0-9]+' | head -1)
+
+    # Convert k/m notation to actual numbers
     convert_k() {
         local val="$1"
         if [ -z "$val" ]; then
             echo "0"
             return
         fi
-        if echo "$val" | grep -q 'k$'; then
+        if echo "$val" | grep -q 'm$'; then
+            local num=$(echo "$val" | sed 's/m$//')
+            echo "$num" | awk '{printf "%.0f", $1 * 1000000}'
+        elif echo "$val" | grep -q 'k$'; then
             local num=$(echo "$val" | sed 's/k$//')
             echo "$num" | awk '{printf "%.0f", $1 * 1000}'
         else
@@ -50,26 +120,87 @@ if echo "$OUTPUT" | grep -q "Breakdown by AI model:"; then
 
     input_tokens=$(convert_k "$input_tokens")
     output_tokens=$(convert_k "$output_tokens")
-    cache_read_tokens=$(convert_k "$cache_read_tokens")
-    cache_creation_tokens=$(convert_k "$cache_creation_tokens")
+    cache_write_tokens=$(convert_k "$cache_write_tokens")
 
     # Ensure they're numbers
     [[ "$input_tokens" =~ ^[0-9]+$ ]] || input_tokens=0
     [[ "$output_tokens" =~ ^[0-9]+$ ]] || output_tokens=0
-    [[ "$cache_read_tokens" =~ ^[0-9]+$ ]] || cache_read_tokens=0
-    [[ "$cache_creation_tokens" =~ ^[0-9]+$ ]] || cache_creation_tokens=0
+    [[ "$cache_write_tokens" =~ ^[0-9]+$ ]] || cache_write_tokens=0
+    [[ "$premium_used" =~ ^[0-9]+$ ]] || premium_used=0
 
-    TOTAL_TOKENS=$((input_tokens + output_tokens))
+    TOTAL_TOKENS=$((input_tokens + output_tokens + cache_write_tokens))
 
-    # Log token usage if we found any
-    if [ "$TOTAL_TOKENS" -gt 0 ]; then
-        LOG_FILE="$LOGS_DIR/copilot-wrapper.log"
+    # Calculate costs using functions (bash 3.2 compatible)
+    input_cost_per_m=$(get_input_price "$model")
+    output_cost_per_m=$(get_output_price "$model")
+    cache_write_cost_per_m=$(get_cache_write_price "$model")
+
+    # Ensure defaults
+    input_cost_per_m="${input_cost_per_m:-0}"
+    output_cost_per_m="${output_cost_per_m:-0}"
+    cache_write_cost_per_m="${cache_write_cost_per_m:-0}"
+
+    # Calculate minimum costs for 1000 tokens
+    min_input_cost=$(echo "scale=4; (1000 / 1000000) * $input_cost_per_m" | bc 2>/dev/null || echo "0")
+    min_output_cost=$(echo "scale=4; (1000 / 1000000) * $output_cost_per_m" | bc 2>/dev/null || echo "0")
+    min_cache_write_cost=$(echo "scale=4; (1000 / 1000000) * $cache_write_cost_per_m" | bc 2>/dev/null || echo "0")
+
+    # Calculate actual costs
+    input_cost=$(echo "scale=4; ($input_tokens / 1000000) * $input_cost_per_m" | bc 2>/dev/null || echo "0")
+    output_cost=$(echo "scale=4; ($output_tokens / 1000000) * $output_cost_per_m" | bc 2>/dev/null || echo "0")
+    cache_write_cost=$(echo "scale=4; ($cache_write_tokens / 1000000) * $cache_write_cost_per_m" | bc 2>/dev/null || echo "0")
+
+    # Use minimum cost if actual cost is less than 1000 token cost
+    input_cost=$(echo "if ($input_cost < $min_input_cost) $min_input_cost else $input_cost" | bc 2>/dev/null || echo "$min_input_cost")
+    output_cost=$(echo "if ($output_cost < $min_output_cost) $min_output_cost else $output_cost" | bc 2>/dev/null || echo "$min_output_cost")
+    cache_write_cost=$(echo "if ($cache_write_cost < $min_cache_write_cost) $min_cache_write_cost else $cache_write_cost" | bc 2>/dev/null || echo "$min_cache_write_cost")
+
+    # Ensure values are not empty
+    input_cost="${input_cost:-0}"
+    output_cost="${output_cost:-0}"
+    cache_write_cost="${cache_write_cost:-0}"
+
+    # Calculate total cost
+    total_cost=$(echo "scale=4; $input_cost + $output_cost + $cache_write_cost" | bc 2>/dev/null || echo "0")
+    total_cost="${total_cost:-0}"
+
+    # Format costs with leading zero if needed
+    input_cost=$(printf "%.4f" "$input_cost" 2>/dev/null || echo "0.0000")
+    output_cost=$(printf "%.4f" "$output_cost" 2>/dev/null || echo "0.0000")
+    cache_write_cost=$(printf "%.4f" "$cache_write_cost" 2>/dev/null || echo "0.0000")
+    total_cost=$(printf "%.4f" "$total_cost" 2>/dev/null || echo "0.0000")
+
+    # Log token usage (always log if we detected the breakdown section)
+    if true; then
+        LOG_FILE="$LOGS_DIR/gather.log"
 
         # Get the command that was run (sanitize for logging)
         COMMAND_ARGS="$*"
         COMMAND_PREVIEW=$(echo "$COMMAND_ARGS" | head -c 100)
 
-        echo "[${TIMESTAMP}] SESSION: $SESSION_ID | Model: $model | In: $input_tokens | Out: $output_tokens | Cache: $cache_read_tokens | Total: $TOTAL_TOKENS | Duration: ${DURATION}s | Command: $COMMAND_PREVIEW" >> "$LOG_FILE"
+        # Convert duration to minutes
+        DURATION_MINUTES=$(echo "scale=2; $DURATION / 60" | bc 2>/dev/null || echo "0.00")
+
+        # Write formatted log entry
+        cat >> "$LOG_FILE" << EOF
+================================================================================
+Session ID: $SESSION_ID
+Timestamp:  $TIMESTAMP
+Model:      $model
+Duration:   ${DURATION_MINUTES} minutes
+
+Premium Requests: $premium_used
+
+Token Usage:
+  Input Tokens:          ${input_tokens} (\$${input_cost})
+  Output Tokens:         ${output_tokens} (\$${output_cost})
+  Cache Write Tokens:    ${cache_write_tokens} (\$${cache_write_cost})
+
+Total Cost: \$${total_cost}
+
+Command: $COMMAND_PREVIEW
+
+EOF
 
         # Send to API
         DURATION_MS=$((DURATION * 1000))
@@ -79,12 +210,16 @@ if echo "$OUTPUT" | grep -q "Breakdown by AI model:"; then
                 \"session_id\": \"${SESSION_ID}\",
                 \"input_tokens\": ${input_tokens},
                 \"output_tokens\": ${output_tokens},
-                \"cache_read_tokens\": ${cache_read_tokens},
-                \"cache_creation_tokens\": ${cache_creation_tokens},
+                \"cache_write_tokens\": ${cache_write_tokens},
                 \"model\": \"${model}\",
                 \"user\": \"${USER}\",
                 \"timestamp\": \"${TIMESTAMP}\",
-                \"duration_ms\": ${DURATION_MS}
+                \"duration_ms\": ${DURATION_MS},
+                \"premium_requests\": ${premium_used},
+                \"input_cost\": ${input_cost},
+                \"output_cost\": ${output_cost},
+                \"cache_write_cost\": ${cache_write_cost},
+                \"total_cost\": ${total_cost}
             }" > /dev/null 2>&1 || true
     fi
 fi

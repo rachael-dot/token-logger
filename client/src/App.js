@@ -23,7 +23,7 @@ function SessionChart({ entries }) {
     input: entry.input_tokens,
     output: entry.output_tokens,
     cacheRead: entry.cache_read_tokens,
-    cacheWrite: entry.cache_creation_tokens,
+    cacheWrite: entry.cache_creation_tokens || entry.cache_write_tokens || 0,
     total: entry.total_tokens
   }));
 
@@ -378,34 +378,42 @@ function App() {
         );
       case 'cost-high':
         return sorted.sort((a, b) => {
-          const costA = calculateCost(
-            a.totals.input_tokens,
-            a.totals.output_tokens,
-            a.totals.cache_read_tokens,
-            a.totals.cache_creation_tokens
-          );
-          const costB = calculateCost(
-            b.totals.input_tokens,
-            b.totals.output_tokens,
-            b.totals.cache_read_tokens,
-            b.totals.cache_creation_tokens
-          );
+          const costA = (viewMode === 'copilot' && a.totals.total_cost > 0) 
+            ? a.totals.total_cost 
+            : calculateCost(
+                a.totals.input_tokens,
+                a.totals.output_tokens,
+                a.totals.cache_read_tokens,
+                a.totals.cache_creation_tokens
+              );
+          const costB = (viewMode === 'copilot' && b.totals.total_cost > 0) 
+            ? b.totals.total_cost 
+            : calculateCost(
+                b.totals.input_tokens,
+                b.totals.output_tokens,
+                b.totals.cache_read_tokens,
+                b.totals.cache_creation_tokens
+              );
           return costB - costA;
         });
       case 'cost-low':
         return sorted.sort((a, b) => {
-          const costA = calculateCost(
-            a.totals.input_tokens,
-            a.totals.output_tokens,
-            a.totals.cache_read_tokens,
-            a.totals.cache_creation_tokens
-          );
-          const costB = calculateCost(
-            b.totals.input_tokens,
-            b.totals.output_tokens,
-            b.totals.cache_read_tokens,
-            b.totals.cache_creation_tokens
-          );
+          const costA = (viewMode === 'copilot' && a.totals.total_cost > 0) 
+            ? a.totals.total_cost 
+            : calculateCost(
+                a.totals.input_tokens,
+                a.totals.output_tokens,
+                a.totals.cache_read_tokens,
+                a.totals.cache_creation_tokens
+              );
+          const costB = (viewMode === 'copilot' && b.totals.total_cost > 0) 
+            ? b.totals.total_cost 
+            : calculateCost(
+                b.totals.input_tokens,
+                b.totals.output_tokens,
+                b.totals.cache_read_tokens,
+                b.totals.cache_creation_tokens
+              );
           return costA - costB;
         });
       case 'tokens-high':
@@ -580,10 +588,18 @@ function App() {
                 </div>
               </>
             ) : (
-              <div className="stat-card">
-                <h3>Cache Tokens</h3>
-                <p className="stat-value">{formatNumber((stats.total_cache_read_tokens || 0) + (stats.total_cache_creation_tokens || 0))}</p>
-              </div>
+              <>
+                <div className="stat-card">
+                  <h3>Cache Write</h3>
+                  <p className="stat-value">{formatNumber(stats.total_cache_write_tokens || 0)}</p>
+                </div>
+                {stats.total_premium_requests > 0 && (
+                  <div className="stat-card">
+                    <h3>Premium Requests</h3>
+                    <p className="stat-value">{formatNumber(stats.total_premium_requests)}</p>
+                  </div>
+                )}
+              </>
             )}
           </div>
           <div className="stats-summary">
@@ -592,122 +608,20 @@ function App() {
               <p className="stat-value">{formatNumber(stats.total_tokens)}</p>
             </div>
             <div className="stat-card cost">
-              <h3>Estimated Cost</h3>
-              <p className="stat-value">{formatCost(calculateCost(
-                stats.total_input_tokens,
-                stats.total_output_tokens,
-                stats.total_cache_read_tokens,
-                stats.total_cache_creation_tokens
-              ))}</p>
+              <h3>{viewMode === 'copilot' && stats.total_cost > 0 ? 'Total' : 'Estimated'} Cost</h3>
+              <p className="stat-value">{formatCost(
+                (viewMode === 'copilot' && stats.total_cost > 0) 
+                  ? stats.total_cost 
+                  : calculateCost(
+                      stats.total_input_tokens,
+                      stats.total_output_tokens,
+                      stats.total_cache_read_tokens,
+                      stats.total_cache_creation_tokens
+                    )
+              )}</p>
             </div>
           </div>
         </section>
-      )}
-
-      {(viewMode === 'claude' || viewMode === 'copilot') && (
-        <section className="sessions-section">
-        <div className="sessions-header">
-          <h2>Sessions</h2>
-          <div className="sort-controls">
-            <label>
-              Sort by:
-              <select
-                value={sortBy}
-                onChange={(e) => setSortBy(e.target.value)}
-                className="sort-select"
-              >
-                <option value="recent">Most Recent</option>
-                <option value="cost-high">Highest Cost</option>
-                <option value="cost-low">Lowest Cost</option>
-                <option value="tokens-high">Most Tokens</option>
-                <option value="tokens-low">Least Tokens</option>
-                <option value="requests-high">Most Requests</option>
-                <option value="requests-low">Least Requests</option>
-              </select>
-            </label>
-          </div>
-        </div>
-        {tags.length > 0 && (
-          <div className="tag-filter-row">
-            <div className="tag-filter">
-              <div className="tag-filter-chips">
-                {tags.map(tag => (
-                  <button
-                    key={tag}
-                    onClick={() => {
-                      if (selectedTags.includes(tag)) {
-                        setSelectedTags(selectedTags.filter(t => t !== tag));
-                      } else {
-                        setSelectedTags([...selectedTags, tag]);
-                      }
-                    }}
-                    className={`tag-filter-chip ${selectedTags.includes(tag) ? 'active' : ''}`}
-                  >
-                    {tag}
-                  </button>
-                ))}
-              </div>
-              {selectedTags.length > 0 && (
-                <button
-                  onClick={() => setSelectedTags([])}
-                  className="clear-tags-btn"
-                >
-                  Clear tag filters
-                </button>
-              )}
-            </div>
-          </div>
-        )}
-        {sessions.length === 0 ? (
-          <p className="empty-state">No sessions recorded yet. Start using Claude Code with the token logger hook enabled.</p>
-        ) : (
-          <div className="sessions-list">
-            {getSortedSessions(getFilteredSessions(sessions)).map((session) => (
-              <div
-                key={session.id}
-                className={`session-card ${selectedSession?.id === session.id ? 'selected' : ''}`}
-                onClick={() => fetchSessionDetails(session.id)}
-              >
-                <div className="session-header">
-                  <span className="session-id" title={session.id}>{truncateId(session.id)}</span>
-                  <div className="session-meta">
-                    {session.user && <span className="session-user">{session.user}</span>}
-                    {session.model && <span className="session-model">{session.model}</span>}
-                    <span className="session-requests">{session.totals.request_count} requests</span>
-                  </div>
-                </div>
-                {session.tags && session.tags.length > 0 && (
-                  <div className="session-tags">
-                    <div className="tag-list">
-                      {session.tags.map(tag => (
-                        <span key={tag} className="tag-badge">{tag}</span>
-                      ))}
-                    </div>
-                  </div>
-                )}
-                <div className="session-tokens">
-                  <span>In: {formatNumber(session.totals.input_tokens)}</span>
-                  <span>Out: {formatNumber(session.totals.output_tokens)}</span>
-                  {viewMode === 'copilot' && (
-                    <span>Cache: {formatNumber((session.totals.cache_read_tokens || 0) + (session.totals.cache_creation_tokens || 0))}</span>
-                  )}
-                  <span className="total">Total: {formatNumber(session.totals.total_tokens)}</span>
-                  <span className="duration">Duration: {formatDuration(session.totals.total_duration_ms)}</span>
-                  <span className="cost">Cost: {formatCost(calculateCost(
-                    session.totals.input_tokens,
-                    session.totals.output_tokens,
-                    session.totals.cache_read_tokens,
-                    session.totals.cache_creation_tokens
-                  ))}</span>
-                </div>
-                <div className="session-time">
-                  Last activity: {formatDate(session.last_activity)}
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </section>
       )}
 
       {(viewMode === 'claude' || viewMode === 'copilot') && selectedSession && (
@@ -854,10 +768,19 @@ function App() {
                   <th>Duration</th>
                   <th>Input</th>
                   <th>Output</th>
-                  <th>Cache Read</th>
-                  <th>Cache Write</th>
+                  {viewMode === 'claude' ? (
+                    <>
+                      <th>Cache Read</th>
+                      <th>Cache Write</th>
+                    </>
+                  ) : (
+                    <th>Cache Write</th>
+                  )}
+                  {viewMode === 'copilot' && (
+                    <th>Premium</th>
+                  )}
                   <th>Total</th>
-                  <th>Est. Cost</th>
+                  <th>{viewMode === 'copilot' ? 'Cost' : 'Est. Cost'}</th>
                 </tr>
               </thead>
               <tbody>
@@ -868,15 +791,28 @@ function App() {
                     <td className="duration">{formatDuration(entry.duration_ms)}</td>
                     <td>{formatNumber(entry.input_tokens)}</td>
                     <td>{formatNumber(entry.output_tokens)}</td>
-                    <td>{formatNumber(entry.cache_read_tokens)}</td>
-                    <td>{formatNumber(entry.cache_creation_tokens)}</td>
+                    {viewMode === 'claude' ? (
+                      <>
+                        <td>{formatNumber(entry.cache_read_tokens)}</td>
+                        <td>{formatNumber(entry.cache_creation_tokens)}</td>
+                      </>
+                    ) : (
+                      <td>{formatNumber(entry.cache_write_tokens || 0)}</td>
+                    )}
+                    {viewMode === 'copilot' && (
+                      <td>{formatNumber(entry.premium_requests || 0)}</td>
+                    )}
                     <td className="total">{formatNumber(entry.total_tokens)}</td>
-                    <td className="cost">{formatCost(calculateCost(
-                      entry.input_tokens,
-                      entry.output_tokens,
-                      entry.cache_read_tokens,
-                      entry.cache_creation_tokens
-                    ))}</td>
+                    <td className="cost">{formatCost(
+                      (viewMode === 'copilot' && entry.total_cost > 0) 
+                        ? entry.total_cost 
+                        : calculateCost(
+                            entry.input_tokens,
+                            entry.output_tokens,
+                            entry.cache_read_tokens,
+                            entry.cache_creation_tokens
+                          )
+                    )}</td>
                   </tr>
                 ))}
               </tbody>
@@ -886,20 +822,148 @@ function App() {
                   <td><strong>-</strong></td>
                   <td><strong>{formatNumber(selectedSession.totals.input_tokens)}</strong></td>
                   <td><strong>{formatNumber(selectedSession.totals.output_tokens)}</strong></td>
-                  <td><strong>{formatNumber(selectedSession.totals.cache_read_tokens)}</strong></td>
-                  <td><strong>{formatNumber(selectedSession.totals.cache_creation_tokens)}</strong></td>
+                  {viewMode === 'claude' ? (
+                    <>
+                      <td><strong>{formatNumber(selectedSession.totals.cache_read_tokens)}</strong></td>
+                      <td><strong>{formatNumber(selectedSession.totals.cache_creation_tokens)}</strong></td>
+                    </>
+                  ) : (
+                    <td><strong>{formatNumber(selectedSession.totals.cache_write_tokens || 0)}</strong></td>
+                  )}
+                  {viewMode === 'copilot' && (
+                    <td><strong>{formatNumber(selectedSession.totals.total_premium_requests || 0)}</strong></td>
+                  )}
                   <td className="total"><strong>{formatNumber(selectedSession.totals.total_tokens)}</strong></td>
-                  <td className="cost"><strong>{formatCost(calculateCost(
-                    selectedSession.totals.input_tokens,
-                    selectedSession.totals.output_tokens,
-                    selectedSession.totals.cache_read_tokens,
-                    selectedSession.totals.cache_creation_tokens
-                  ))}</strong></td>
+                  <td className="cost"><strong>{formatCost(
+                    (viewMode === 'copilot' && selectedSession.totals.total_cost > 0) 
+                      ? selectedSession.totals.total_cost 
+                      : calculateCost(
+                          selectedSession.totals.input_tokens,
+                          selectedSession.totals.output_tokens,
+                          selectedSession.totals.cache_read_tokens,
+                          selectedSession.totals.cache_creation_tokens
+                        )
+                  )}</strong></td>
                 </tr>
               </tfoot>
             </table>
           </div>
         </section>
+      )}
+
+      {(viewMode === 'claude' || viewMode === 'copilot') && (
+        <section className="sessions-section">
+        <div className="sessions-header">
+          <h2>Sessions</h2>
+          <div className="sort-controls">
+            <label>
+              Sort by:
+              <select
+                value={sortBy}
+                onChange={(e) => setSortBy(e.target.value)}
+                className="sort-select"
+              >
+                <option value="recent">Most Recent</option>
+                <option value="cost-high">Highest Cost</option>
+                <option value="cost-low">Lowest Cost</option>
+                <option value="tokens-high">Most Tokens</option>
+                <option value="tokens-low">Least Tokens</option>
+                <option value="requests-high">Most Requests</option>
+                <option value="requests-low">Least Requests</option>
+              </select>
+            </label>
+          </div>
+        </div>
+        {tags.length > 0 && (
+          <div className="tag-filter-row">
+            <div className="tag-filter">
+              <div className="tag-filter-chips">
+                {tags.map(tag => (
+                  <button
+                    key={tag}
+                    onClick={() => {
+                      if (selectedTags.includes(tag)) {
+                        setSelectedTags(selectedTags.filter(t => t !== tag));
+                      } else {
+                        setSelectedTags([...selectedTags, tag]);
+                      }
+                    }}
+                    className={`tag-filter-chip ${selectedTags.includes(tag) ? 'active' : ''}`}
+                  >
+                    {tag}
+                  </button>
+                ))}
+              </div>
+              {selectedTags.length > 0 && (
+                <button
+                  onClick={() => setSelectedTags([])}
+                  className="clear-tags-btn"
+                >
+                  Clear tag filters
+                </button>
+              )}
+            </div>
+          </div>
+        )}
+        {sessions.length === 0 ? (
+          <p className="empty-state">No sessions recorded yet. Start using Claude Code with the token logger hook enabled.</p>
+        ) : (
+          <div className="sessions-list">
+            {getSortedSessions(getFilteredSessions(sessions)).map((session) => (
+              <div
+                key={session.id}
+                className={`session-card ${selectedSession?.id === session.id ? 'selected' : ''}`}
+                onClick={() => fetchSessionDetails(session.id)}
+              >
+                <div className="session-header">
+                  <span className="session-id" title={session.id}>{truncateId(session.id)}</span>
+                  <div className="session-meta">
+                    {session.user && <span className="session-user">{session.user}</span>}
+                    {session.model && <span className="session-model">{session.model}</span>}
+                    <span className="session-requests">{session.totals.request_count} requests</span>
+                  </div>
+                </div>
+                {session.tags && session.tags.length > 0 && (
+                  <div className="session-tags">
+                    <div className="tag-list">
+                      {session.tags.map(tag => (
+                        <span key={tag} className="tag-badge">{tag}</span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                <div className="session-tokens">
+                  <span>In: {formatNumber(session.totals.input_tokens)}</span>
+                  <span>Out: {formatNumber(session.totals.output_tokens)}</span>
+                  {viewMode === 'copilot' && (
+                    <>
+                      <span>Cache: {formatNumber(session.totals.cache_write_tokens || 0)}</span>
+                      {session.totals.total_premium_requests > 0 && (
+                        <span>Premium: {formatNumber(session.totals.total_premium_requests)}</span>
+                      )}
+                    </>
+                  )}
+                  <span className="total">Total: {formatNumber(session.totals.total_tokens)}</span>
+                  <span className="duration">Duration: {formatDuration(session.totals.total_duration_ms)}</span>
+                  <span className="cost">Cost: {formatCost(
+                    (viewMode === 'copilot' && session.totals.total_cost > 0) 
+                      ? session.totals.total_cost 
+                      : calculateCost(
+                          session.totals.input_tokens,
+                          session.totals.output_tokens,
+                          session.totals.cache_read_tokens,
+                          session.totals.cache_creation_tokens
+                        )
+                  )}</span>
+                </div>
+                <div className="session-time">
+                  Last activity: {formatDate(session.last_activity)}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
       )}
 
       {viewMode === 'openhands' && (
